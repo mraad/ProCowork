@@ -22,12 +22,16 @@
         </Border>
     </DataTemplate>
 
-    <!-- Tool call: shows the generated code that ran + its result -->
+    <!-- Tool call: shows the generated code that ran + its result.
+         Hidden when the "Show tool details" checkbox (ShowToolOutputs) is off. -->
     <DataTemplate DataType="{x:Type ui:ToolCallVm}">
         <Border Margin="4,4,20,4" Padding="6" CornerRadius="4"
                 BorderThickness="1"
                 BorderBrush="{DynamicResource Esri_BorderBrush}"
-                Background="{DynamicResource Esri_BackgroundBrush}">
+                Background="{DynamicResource Esri_BackgroundBrush}"
+                Visibility="{Binding DataContext.ShowToolOutputs,
+                             RelativeSource={RelativeSource AncestorType=ItemsControl},
+                             Converter={StaticResource BoolToVis}}">
             <StackPanel>
                 <DockPanel>
                     <TextBlock Text="&#9656;" Margin="0,0,4,0" FontWeight="Bold" />

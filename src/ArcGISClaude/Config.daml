@@ -37,7 +37,7 @@
       </tabs>
 
       <groups>
-        <group id="ArcGISClaude_Group" caption="Assistant" keytip="A" appearsOnAddInTab="false">
+        <group id="ArcGISClaude_Group" caption="Bridge" keytip="A" appearsOnAddInTab="false">
           <button refID="ArcGISClaude_StartBridge" size="large" />
           <button refID="ArcGISClaude_StopBridge" size="large" />
           <button refID="ArcGISClaude_ShowChat" size="large" />
@@ -46,7 +46,7 @@
 
       <controls>
         <button id="ArcGISClaude_StartBridge"
-                caption="Start Bridge"
+                caption="Start"
                 className="StartBridgeButton"
                 loadOnClick="true"
                 keytip="SB"
@@ -59,7 +59,7 @@
         </button>
 
         <button id="ArcGISClaude_StopBridge"
-                caption="Stop Bridge"
+                caption="Stop"
                 className="StopBridgeButton"
                 loadOnClick="true"
                 keytip="TB"

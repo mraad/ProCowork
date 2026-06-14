@@ -51,6 +51,14 @@ namespace ArcGISClaude
         private string _statusText = "Not connected — type a message to start Claude.";
         public string StatusText { get => _statusText; set => SetProperty(ref _statusText, value); }
 
+        // When off, the transcript hides the tool-call cards (generated code + results).
+        private bool _showToolOutputs = true;
+        public bool ShowToolOutputs
+        {
+            get => _showToolOutputs;
+            set => SetProperty(ref _showToolOutputs, value);
+        }
+
         public RelayCommand SendCommand { get; }
         public RelayCommand StopCommand { get; }
 

@@ -11,13 +11,16 @@ using System.Windows.Media;
 namespace ArcGISClaude.UI
 {
     /// <summary>
-    /// Compact, dependency-free Markdown renderer that FOLLOWS Pro's theme — text is
-    /// rendered with plain TextBlocks/Runs that inherit the panel's themed foreground,
-    /// so it reads correctly in both dark and light mode. Handles headers, bold,
-    /// italic, inline code, fenced code blocks, bullet/numbered lists, links, and
-    /// paragraphs (enough for assistant chat output).
+    /// Compact, dependency-free Markdown renderer that FOLLOWS Pro's theme. It is a
+    /// <see cref="Border"/> whose Child is a stack of TextBlocks/Runs that inherit the
+    /// panel's themed foreground, so it reads correctly in dark and light mode.
+    /// Handles headers, bold, italic, inline code, fenced code blocks, bullet/numbered
+    /// lists, links, and paragraphs.
+    ///
+    /// Note: emphasis is only '*'/'**' (not '_'), so snake_case identifiers such as
+    /// run_python_current and arcpy.da are never mangled into italics.
     /// </summary>
-    internal sealed class MarkdownPresenter : ContentControl
+    internal sealed class MarkdownPresenter : Border
     {
         public static readonly DependencyProperty MarkdownProperty =
             DependencyProperty.Register(nameof(Markdown), typeof(string), typeof(MarkdownPresenter),
@@ -29,9 +32,8 @@ namespace ArcGISClaude.UI
             set => SetValue(MarkdownProperty, value);
         }
 
-        // bold (** or __), italic (* or _), inline code (`), link [text](url)
         private static readonly Regex InlineRx = new Regex(
-            @"\*\*(?<b>.+?)\*\*|__(?<b2>.+?)__|\*(?<i>.+?)\*|_(?<i2>.+?)_|`(?<c>.+?)`|\[(?<t>.+?)\]\((?<u>.+?)\)",
+            @"\*\*(?<b>[^*]+?)\*\*|\*(?<i>[^*]+?)\*|`(?<c>[^`]+?)`|\[(?<t>[^\]]+?)\]\((?<u>[^)]+?)\)",
             RegexOptions.Compiled);
 
         private void Render(string md)
@@ -100,7 +102,7 @@ namespace ArcGISClaude.UI
                 }
                 FlushPara();
             }
-            Content = panel;
+            Child = panel;
         }
 
         private TextBlock MakeText(string text, double fontSize, FontWeight weight, double indent, string prefix = null)
@@ -121,10 +123,10 @@ namespace ArcGISClaude.UI
             {
                 if (m.Index > pos) result.Add(new Run(text.Substring(pos, m.Index - pos)));
 
-                if (m.Groups["b"].Success || m.Groups["b2"].Success)
-                    result.Add(new Bold(new Run(m.Groups["b"].Success ? m.Groups["b"].Value : m.Groups["b2"].Value)));
-                else if (m.Groups["i"].Success || m.Groups["i2"].Success)
-                    result.Add(new Italic(new Run(m.Groups["i"].Success ? m.Groups["i"].Value : m.Groups["i2"].Value)));
+                if (m.Groups["b"].Success)
+                    result.Add(new Bold(new Run(m.Groups["b"].Value)));
+                else if (m.Groups["i"].Success)
+                    result.Add(new Italic(new Run(m.Groups["i"].Value)));
                 else if (m.Groups["c"].Success)
                 {
                     var code = new Run(m.Groups["c"].Value) { FontFamily = new FontFamily("Consolas") };

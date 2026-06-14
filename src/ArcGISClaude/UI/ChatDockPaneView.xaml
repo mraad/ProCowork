@@ -22,7 +22,14 @@
         <!-- Status bar -->
         <Border DockPanel.Dock="Top" Padding="6"
                 Background="{DynamicResource Esri_BackgroundPressedBrush}">
-            <TextBlock Text="{Binding StatusText}" TextTrimming="CharacterEllipsis" Opacity="0.85" />
+            <DockPanel>
+                <CheckBox DockPanel.Dock="Right" Content="Show tool details"
+                          IsChecked="{Binding ShowToolOutputs}"
+                          VerticalAlignment="Center" Margin="8,0,0,0"
+                          ToolTip="Show the tool calls Claude makes (generated code and results)." />
+                <TextBlock Text="{Binding StatusText}" TextTrimming="CharacterEllipsis"
+                           Opacity="0.85" VerticalAlignment="Center" />
+            </DockPanel>
         </Border>
 
         <!-- Input row -->
