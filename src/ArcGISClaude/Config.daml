@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ArcGIS defaultAssembly="ArcGISClaude.dll"
+        defaultNamespace="ArcGISClaude"
+        xmlns="http://schemas.esri.com/DADF/Registry"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://schemas.esri.com/DADF/Registry Registry.xsd">
+
+  <AddInInfo id="{8E5C8B9A-2F4D-4C9E-9A1B-7C2E0D6F1A02}" version="0.1.0" desktopVersion="3.6">
+    <Name>Claude in ArcGIS Pro</Name>
+    <Description>A native chat panel that lets the Claude Code engine drive ArcGIS Pro through Python, ArcPy, and the live map.</Description>
+    <Image>Images\AddinDesktop32.png</Image>
+    <Author>mraad23</Author>
+    <Company>mraad23</Company>
+    <Date>2026-06-14</Date>
+    <Subject>Framework</Subject>
+  </AddInInfo>
+
+  <conditions>
+    <insertCondition id="ArcGISClaude_bridgeUp" caption="Claude bridge connected">
+      <state id="ArcGISClaude_bridgeUpState" />
+    </insertCondition>
+    <insertCondition id="ArcGISClaude_bridgeDown" caption="Claude bridge not connected">
+      <state id="ArcGISClaude_bridgeDownState" />
+    </insertCondition>
+  </conditions>
+
+  <modules>
+    <insertModule id="ArcGISClaude_Module"
+                  className="Module1"
+                  autoLoad="true"
+                  caption="Claude Module">
+
+      <tabs>
+        <tab id="ArcGISClaude_Tab" caption="Claude" keytip="C">
+          <group refID="ArcGISClaude_Group" />
+        </tab>
+      </tabs>
+
+      <groups>
+        <group id="ArcGISClaude_Group" caption="Assistant" keytip="A" appearsOnAddInTab="false">
+          <button refID="ArcGISClaude_StartBridge" size="large" />
+          <button refID="ArcGISClaude_StopBridge" size="large" />
+          <button refID="ArcGISClaude_ShowChat" size="large" />
+        </group>
+      </groups>
+
+      <controls>
+        <button id="ArcGISClaude_StartBridge"
+                caption="Start Bridge"
+                className="StartBridgeButton"
+                loadOnClick="true"
+                keytip="SB"
+                condition="ArcGISClaude_bridgeDown"
+                smallImage="Images\Bridge16.png"
+                largeImage="Images\Bridge32.png">
+          <tooltip heading="Start ArcPy bridge">
+            Start the in-process Python bridge so Claude can use the live (CURRENT) project.<disabledText />
+          </tooltip>
+        </button>
+
+        <button id="ArcGISClaude_StopBridge"
+                caption="Stop Bridge"
+                className="StopBridgeButton"
+                loadOnClick="true"
+                keytip="TB"
+                condition="ArcGISClaude_bridgeUp"
+                smallImage="Images\Stop16.png"
+                largeImage="Images\Stop32.png">
+          <tooltip heading="Stop ArcPy bridge">
+            Stop the in-process Python bridge.<disabledText />
+          </tooltip>
+        </button>
+
+        <button id="ArcGISClaude_ShowChat"
+                caption="Chat"
+                className="ShowChatDockPane"
+                loadOnClick="true"
+                keytip="CH"
+                condition="ArcGISClaude_bridgeUp"
+                smallImage="Images\Chat16.png"
+                largeImage="Images\Chat32.png">
+          <tooltip heading="Claude Chat">
+            Open the Claude assistant panel.<disabledText />
+          </tooltip>
+        </button>
+      </controls>
+
+      <dockPanes>
+        <dockPane id="ArcGISClaude_ChatDockPane"
+                  caption="Claude"
+                  className="ChatDockPaneViewModel"
+                  dock="group"
+                  dockWith="esri_core_contentsDockPane">
+          <content className="ChatDockPaneView" />
+        </dockPane>
+      </dockPanes>
+
+    </insertModule>
+  </modules>
+
+  <propertySheets>
+    <updateSheet refID="esri_core_optionsPropertySheet">
+      <insertPage id="ArcGISClaude_AuthOptionsPage"
+                  caption="Claude"
+                  className="AuthOptionsViewModel"
+                  group="Application">
+        <content className="AuthOptionsPage" />
+      </insertPage>
+    </updateSheet>
+  </propertySheets>
+
+</ArcGIS>

@@ -1,0 +1,33 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+*.esriAddinX
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userprefs
+*_wpftmp.csproj
+
+# .NET
+project.lock.json
+project.assets.json
+*.nuget.props
+*.nuget.targets
+artifacts/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+
+# OS / editor
+Thumbs.db
+.DS_Store
+*.swp

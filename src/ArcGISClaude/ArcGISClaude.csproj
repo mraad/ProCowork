@@ -1,0 +1,92 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    ArcGIS Pro add-in: "Claude in ArcGIS Pro".
+    Target ArcGIS Pro 3.7 (SDK on .NET 10). For Pro 3.6 use net8.0-windows and
+    Esri.ArcGISPro.Extensions30 3.6.*; for 3.5 and earlier, net6.0-windows.
+
+    NOTE: The .esriAddinX packaging step is provided by the "ArcGIS Pro SDK for
+    .NET" build targets carried by the Esri.ArcGISPro.Extensions30 package.
+    The built add-in deploys to:
+      %USERPROFILE%\Documents\ArcGIS\AddIns\ArcGISPro\
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <AssemblyName>ArcGISClaude</AssemblyName>
+    <RootNamespace>ArcGISClaude</RootNamespace>
+    <Version>0.1.0</Version>
+    <Company>mraad23</Company>
+    <Product>Claude in ArcGIS Pro</Product>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- All ArcGIS Pro API assemblies. CopyLocal is false by design: Pro provides
+         these at runtime; shipping copies causes assembly-load conflicts. Pin the
+         version to the Pro release you target. -->
+    <PackageReference Include="Esri.ArcGISPro.Extensions30" Version="3.7.*">
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </PackageReference>
+
+    <!-- Pro ships Newtonsoft.Json 13.0.3; compile against it but don't copy our
+         own (Pro provides it at runtime) to avoid binding conflicts. -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3">
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </PackageReference>
+
+    <!-- DPAPI (ProtectedData) is provided by the net10.0-windows framework. -->
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- DAML goes to the ROOT of the .esriAddinX. The Esri packaging target only
+         stages Content whose CopyToOutputDirectory is Never/unset, so it must be
+         Never (not PreserveNewest) or packaging is silently skipped. -->
+    <Content Include="Config.daml">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Python bridge + toolbox ship next to the assembly (Install\Python) so the
+         add-in can locate them at runtime via Assembly.Location. -->
+    <Content Include="Python\**\*.*" Exclude="Python\**\__pycache__\**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+
+    <!-- CLAUDE.md template ships next to the assembly (Install\Workspace); the
+         add-in seeds it into the user workspace on first run. -->
+    <Content Include="Workspace\**\*.*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Ribbon icons. Replace the placeholders with real 16/32 px PNGs. -->
+    <Resource Include="Images\**\*.png" />
+  </ItemGroup>
+
+  <!-- Deploy the packaged add-in to the folder ArcGIS Pro scans at startup.
+       RegisterAddIn.exe does not reliably target it when Documents is redirected
+       (OneDrive, Parallels Mac home, etc.), so copy it there explicitly. -->
+  <Target Name="DeployAddinToProFolder" AfterTargets="PackageArcGISContents">
+    <PropertyGroup>
+      <!-- Resolve the real Documents path (handles OneDrive / Parallels redirection). -->
+      <DocsFolder>$(registry:HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders@Personal)</DocsFolder>
+      <DocsFolder Condition="'$(DocsFolder)' == ''">$(USERPROFILE)\Documents</DocsFolder>
+      <ProAddinFolder>$(DocsFolder)\ArcGIS\AddIns\ArcGISPro</ProAddinFolder>
+      <BuiltAddin>$(OutDir)$(TargetName).esriAddinX</BuiltAddin>
+    </PropertyGroup>
+    <MakeDir Directories="$(ProAddinFolder)" Condition="Exists('$(BuiltAddin)')" />
+    <Copy SourceFiles="$(BuiltAddin)" DestinationFolder="$(ProAddinFolder)" Condition="Exists('$(BuiltAddin)')" />
+    <Message Importance="high" Text="Deployed add-in to $(ProAddinFolder)" Condition="Exists('$(BuiltAddin)')" />
+  </Target>
+
+</Project>
