@@ -139,6 +139,8 @@ namespace ArcGISClaude.Engine
 
         private string BuildArgs(EngineSettings s)
         {
+            // The engine emits Markdown (its natural format); the chat panel converts
+            // that Markdown to HTML and renders it via HtmlPresenter.
             var args = "-p --output-format stream-json --input-format stream-json --verbose" +
                        $" --mcp-config \"{_mcpConfigPath}\"";
             if (!string.IsNullOrEmpty(s.PermissionMode))

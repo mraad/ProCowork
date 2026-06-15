@@ -30,11 +30,18 @@ namespace ArcGISClaude.UI
         public UserMessageVm(string text) => Text = text;
     }
 
-    /// <summary>Assistant prose.</summary>
+    /// <summary>Assistant prose. Holds raw Markdown from the engine; the panel renders
+    /// <see cref="Html"/> (Markdown converted to HTML) via HtmlPresenter.</summary>
     internal sealed class AssistantMessageVm : ChatItemVm
     {
         private string _text;
-        public string Text { get => _text; set => Set(ref _text, value); }
+        public string Text
+        {
+            get => _text;
+            set { if (Set(ref _text, value)) Raise(nameof(Html)); }
+        }
+
+        public string Html => MarkdownToHtml.Convert(_text);
     }
 
     /// <summary>System/connection notices and surfaced errors.</summary>

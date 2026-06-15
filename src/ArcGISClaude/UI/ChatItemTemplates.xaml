@@ -13,12 +13,13 @@
         </Border>
     </DataTemplate>
 
-    <!-- Assistant message (rendered as markdown; inherits the themed foreground) -->
+    <!-- Assistant message: Markdown from the engine, converted to HTML and rendered
+         (inherits the themed foreground) -->
     <DataTemplate DataType="{x:Type ui:AssistantMessageVm}">
         <Border Margin="4,4,40,4" Padding="8" CornerRadius="6"
                 Background="{DynamicResource Esri_BackgroundPressedBrush}"
                 HorizontalAlignment="Left">
-            <ui:MarkdownPresenter Markdown="{Binding Text}" />
+            <ui:HtmlPresenter Html="{Binding Html}" />
         </Border>
     </DataTemplate>
 
