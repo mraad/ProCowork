@@ -4,6 +4,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:extensions="clr-namespace:ArcGIS.Desktop.Extensions;assembly=ArcGIS.Desktop.Extensions"
+             xmlns:ui="clr-namespace:ArcGISClaude.UI"
              mc:Ignorable="d"
              d:DesignHeight="600" d:DesignWidth="360">
 
@@ -22,20 +23,17 @@
         <!-- Status bar -->
         <Border DockPanel.Dock="Top" Padding="6"
                 Background="{DynamicResource Esri_BackgroundPressedBrush}">
-            <DockPanel>
-                <CheckBox DockPanel.Dock="Right" Content="Show tool details"
-                          IsChecked="{Binding ShowToolOutputs}"
-                          VerticalAlignment="Center" Margin="8,0,0,0"
-                          ToolTip="Show the tool calls Claude makes (generated code and results)." />
-                <TextBlock Text="{Binding StatusText}" TextTrimming="CharacterEllipsis"
-                           Opacity="0.85" VerticalAlignment="Center" />
-            </DockPanel>
+            <TextBlock Text="{Binding StatusText}" TextTrimming="CharacterEllipsis" Opacity="0.85" />
         </Border>
 
         <!-- Input row -->
         <Border DockPanel.Dock="Bottom" Padding="6"
                 Background="{DynamicResource Esri_BackgroundPressedBrush}">
-            <Grid>
+            <StackPanel>
+                <CheckBox Content="Show tool details" Margin="2,0,0,6"
+                          IsChecked="{Binding ShowToolOutputs}"
+                          ToolTip="Show the tool calls Claude makes (generated code and results)." />
+                <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
@@ -55,11 +53,12 @@
                 <Button Grid.Column="1" Content="Send" MinWidth="64" Margin="6,0,0,0"
                         Style="{DynamicResource Esri_Button}"
                         Command="{Binding SendCommand}" />
-            </Grid>
+                </Grid>
+            </StackPanel>
         </Border>
 
-        <!-- Transcript -->
-        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="2">
+        <!-- Transcript (auto-scrolls to the newest message) -->
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="2" ui:AutoScroll.ToEnd="True">
             <ItemsControl ItemsSource="{Binding Items}" Margin="4" />
         </ScrollViewer>
 

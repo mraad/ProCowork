@@ -71,6 +71,23 @@ namespace ArcGISClaude.UI
                     var t = line.TrimEnd();
                     if (t.Length == 0) { FlushPara(); i++; continue; }
 
+                    // table: a "| ... |" row immediately followed by a "|---|---|" rule
+                    if (t.IndexOf('|') >= 0 && i + 1 < lines.Length && IsTableSeparator(lines[i + 1]))
+                    {
+                        FlushPara();
+                        var rows = new List<string[]> { SplitCells(t) };
+                        i += 2; // consume header + separator
+                        while (i < lines.Length && lines[i].IndexOf('|') >= 0
+                               && lines[i].Trim().Length > 0
+                               && !lines[i].TrimStart().StartsWith("```"))
+                        {
+                            rows.Add(SplitCells(lines[i]));
+                            i++;
+                        }
+                        panel.Children.Add(MakeTable(rows));
+                        continue;
+                    }
+
                     var h = Regex.Match(t, @"^(#{1,6})\s+(.*)$");      // header
                     if (h.Success)
                     {
@@ -148,6 +165,55 @@ namespace ArcGISClaude.UI
             }
             if (pos < text.Length) result.Add(new Run(text.Substring(pos)));
             return result;
+        }
+
+        private static bool IsTableSeparator(string s)
+            => s.IndexOf('-') >= 0 && Regex.IsMatch(s, @"^[\s|:\-]+$");
+
+        private static string[] SplitCells(string row)
+        {
+            var raw = row.Trim().Trim('|').Split('|');
+            for (int k = 0; k < raw.Length; k++) raw[k] = raw[k].Trim();
+            return raw;
+        }
+
+        private FrameworkElement MakeTable(List<string[]> rows)
+        {
+            int cols = 0;
+            foreach (var r in rows) cols = Math.Max(cols, r.Length);
+
+            var grid = new Grid();
+            for (int c = 0; c < cols; c++)
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            for (int r = 0; r < rows.Count; r++)
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            for (int r = 0; r < rows.Count; r++)
+            {
+                var cells = rows[r];
+                for (int c = 0; c < cols; c++)
+                {
+                    var text = c < cells.Length ? cells[c] : "";
+                    var tb = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(5, 3, 5, 3) };
+                    if (r == 0) tb.FontWeight = FontWeights.Bold;        // header row
+                    foreach (var inl in ParseInlines(text)) tb.Inlines.Add(inl);
+
+                    var cell = new Border { Child = tb, BorderThickness = new Thickness(0, 0, 1, 1) };
+                    cell.SetResourceReference(Border.BorderBrushProperty, "Esri_BorderBrush");
+                    Grid.SetRow(cell, r);
+                    Grid.SetColumn(cell, c);
+                    grid.Children.Add(cell);
+                }
+            }
+
+            var outer = new Border
+            {
+                Child = grid,
+                BorderThickness = new Thickness(1, 1, 0, 0), // top + left; cells draw right + bottom
+                Margin = new Thickness(0, 4, 0, 4),
+            };
+            outer.SetResourceReference(Border.BorderBrushProperty, "Esri_BorderBrush");
+            return outer;
         }
 
         private FrameworkElement MakeCodeBlock(string code)

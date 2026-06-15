@@ -43,7 +43,8 @@ namespace ArcGISClaude
                 bool ok = await BridgeBootstrap.TryStartAsync(bridge, paths, CancellationToken.None);
                 if (!ok)
                 {
-                    MessageBox.Show("Could not confirm the ArcPy bridge started. Open Analysis ▸ Python to check for errors, then try again.", "Claude");
+                    MessageBox.Show("Could not confirm the bridge started. See the log at " +
+                        @"%USERPROFILE%\.arcgis_claude\bridge.log and try again.", "Claude");
                     return;
                 }
 

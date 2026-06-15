@@ -20,7 +20,8 @@ File IPC (one file per request, correlation id in name + body):
   <ipc>/res_<id>.json   {"id","ok","error","data"}
   <ipc>/bridge.alive    heartbeat (proves the daemon is up)
   <ipc>/bridge.stop     stop signal (daemon honours it, then exits)
-  <ipc>/bridge.status   {"connected","project","error"}  (for the Start Bridge UI)
+  <ipc>/bridge.status   {"connected","project","error"}  (read by the Start button UI)
+  <ipc>/bridge.log      timestamped daemon lifecycle/error log (for diagnosis)
 """
 
 import os
@@ -41,6 +42,7 @@ IPC_DIR = os.environ.get("ARCGIS_CLAUDE_IPC") or os.path.join(
 ALIVE = os.path.join(IPC_DIR, "bridge.alive")
 STOP = os.path.join(IPC_DIR, "bridge.stop")
 STATUS = os.path.join(IPC_DIR, "bridge.status")
+LOG = os.path.join(IPC_DIR, "bridge.log")
 
 _POLL_SECONDS = 0.1
 _HEARTBEAT_SECONDS = 1.0
@@ -49,6 +51,17 @@ _HEARTBEAT_SECONDS = 1.0
 _APRX = None
 _PROJECT_PATH = None
 _CURRENT_ERROR = None
+
+
+def _log(msg):
+    """Append a timestamped line to bridge.log (for diagnosing daemon lifetime)."""
+    try:
+        with io.open(LOG, "a", encoding="utf-8") as f:
+            f.write("%s [%s] %s\n" % (
+                time.strftime("%Y-%m-%d %H:%M:%S"),
+                threading.current_thread().name, msg))
+    except Exception:
+        pass
 
 
 # --------------------------------------------------------------------------- #
@@ -355,6 +368,7 @@ def _write_status():
 
 def _shutdown():
     """Stop was requested: drop the heartbeat + stop + status, then end the thread."""
+    _log("shutdown: stop signal seen, ending daemon")
     for p in (ALIVE, STOP, STATUS):
         try:
             if os.path.exists(p):
@@ -364,33 +378,49 @@ def _shutdown():
     print("[arcgis_claude] bridge stopped")
 
 
+def _process_one(name):
+    path = os.path.join(IPC_DIR, name)
+    try:
+        with io.open(path, "r", encoding="utf-8") as f:
+            cmd = json.load(f)
+    except Exception:
+        return  # half-written; pick it up next pass
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+    _log("cmd id=%s op=%s" % (cmd.get("id"), cmd.get("op")))
+    try:
+        _write_result(_handle(cmd))
+    except Exception:
+        _log("write_result failed: " + traceback.format_exc())
+
+
 def _poll_loop():
     last_beat = 0.0
+    ticks = 0
     while True:
-        if os.path.exists(STOP):
-            _shutdown()
-            return
-        now = time.time()
-        if now - last_beat >= _HEARTBEAT_SECONDS:
-            _heartbeat()
-            last_beat = now
         try:
-            names = [n for n in os.listdir(IPC_DIR)
-                     if n.startswith("cmd_") and n.endswith(".json")]
-        except Exception:
-            names = []
-        for name in sorted(names):
-            path = os.path.join(IPC_DIR, name)
+            if os.path.exists(STOP):
+                _shutdown()
+                return
+            now = time.time()
+            if now - last_beat >= _HEARTBEAT_SECONDS:
+                _heartbeat()
+                last_beat = now
+                ticks += 1
+                if ticks % 15 == 1:
+                    _log("alive (tick %d)" % ticks)
             try:
-                with io.open(path, "r", encoding="utf-8") as f:
-                    cmd = json.load(f)
+                names = [n for n in os.listdir(IPC_DIR)
+                         if n.startswith("cmd_") and n.endswith(".json")]
             except Exception:
-                continue
-            try:
-                os.remove(path)
-            except OSError:
-                pass
-            _write_result(_handle(cmd))
+                names = []
+            for name in sorted(names):
+                _process_one(name)
+        except Exception:
+            # The daemon must NEVER die from a stray error.
+            _log("poll loop error: " + traceback.format_exc())
         time.sleep(_POLL_SECONDS)
 
 
@@ -429,6 +459,7 @@ def start():
         pass
 
     if _already_running():
+        _log("start(): already running; skipping (start_thread=%s)" % threading.current_thread().name)
         print("[arcgis_claude] bridge already running -> %s "
               "(stop then start to reconnect to a different project)" % IPC_DIR)
         return
@@ -436,10 +467,13 @@ def start():
     # Resolve + cache CURRENT HERE, on the foreground/main thread (this runs inside
     # the ClaudeBridge.pyt foreground execute(), where CURRENT is available).
     _resolve_current()
+    _log("start(): connected=%s project=%r current_error=%r start_thread=%s"
+         % (_APRX is not None, _PROJECT_PATH, _CURRENT_ERROR, threading.current_thread().name))
 
     _heartbeat()
     t = threading.Thread(target=_poll_loop, name="arcgis_claude_bridge", daemon=True)
     t.start()
+    _log("daemon thread started: %s (alive=%s)" % (t.name, t.is_alive()))
 
     if _APRX is not None:
         print("[arcgis_claude] bridge started; connected to %s"

@@ -30,9 +30,9 @@ DEFAULT_PROTOCOL = "2025-06-18"
 CALL_TIMEOUT = 300.0   # seconds; covers long geoprocessing / code runs
 
 _NOT_RUNNING_MSG = (
-    "The ArcGIS Pro ArcPy bridge is not running, so live-project tools are "
-    "unavailable. Ask the user to click 'Start Bridge' on the Claude ribbon tab "
-    "in ArcGIS Pro (or paste the bootstrap into Analysis > Python)."
+    "The ArcGIS Pro live-project bridge isn't running, so live-project tools are "
+    "unavailable. Ask the user to open a project and click Start in the Claude "
+    "tab's Bridge group on the ribbon."
 )
 
 
