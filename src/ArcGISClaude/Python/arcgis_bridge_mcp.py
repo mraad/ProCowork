@@ -30,9 +30,9 @@ DEFAULT_PROTOCOL = "2025-06-18"
 CALL_TIMEOUT = 300.0   # seconds; covers long geoprocessing / code runs
 
 _NOT_RUNNING_MSG = (
-    "The ArcGIS Pro live-project bridge isn't running, so live-project tools are "
-    "unavailable. Ask the user to open a project and click Start in the Claude "
-    "tab's Bridge group on the ribbon."
+    "The ArcGIS Pro live-project bridge isn't responding. Make sure ArcGIS Pro is "
+    "running with the Claude add-in loaded — the bridge starts automatically with Pro "
+    "and needs no manual step. (If Pro is open, it may still be loading.)"
 )
 
 

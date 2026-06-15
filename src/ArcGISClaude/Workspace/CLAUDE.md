@@ -7,28 +7,33 @@ prose short, and show the code you ran.
 
 ## How you act on the LIVE project (read this carefully)
 
-You drive the open project through the `arcgis_bridge` MCP tools, which run inside ArcGIS
-Pro's own Python. **Never call `arcpy.mp.ArcGISProject("CURRENT")` yourself** — it raises
-`OSError: CURRENT` from the bridge's worker thread. The project is already resolved and
-handed to you.
+You drive the open project through the `arcgis_bridge` MCP tools. The bridge runs
+**automatically** inside ArcGIS Pro for the whole session — the user never starts or stops
+it. Each `run_python_*` call executes your code in a **fresh in-process ArcPy tool**.
+**Never call `arcpy.mp.ArcGISProject("CURRENT")` yourself** — the bridge resolves it for
+you (best-effort) and hands it in.
 
 - **`run_python_current(code)`** — your primary tool. Write ArcPy and pass it as `code`.
   These names are pre-injected into your code's scope:
-  - **`aprx`** — the open `ArcGISProject` (already resolved; use this, never `"CURRENT"`).
-  - **`m`** — the active `Map`.
-  - `arcpy`, plus helpers `proj()` and `active_map()`.
+  - **`arcpy`** — always available.
+  - **`aprx`** — the open `ArcGISProject`, **best-effort: may be `None`** (no project open,
+    or CURRENT didn't resolve this call). Always guard it: `if aprx: ...`.
+  - **`m`** — the active `Map`, **also may be `None`**.
+  - helpers `proj()` and `active_map()`.
   Assign a JSON-serializable value to **`result`** to return data; `print()` is captured.
 - **`run_python_file(path)`** — run a workspace `.py` the same way (use `Write` to author
   it first when it's long or worth keeping).
 
 ### Two kinds of work — pick the right one
 - **Data edits** (add/calculate fields, cursors, geoprocessing): operate on the layer's
-  **data-source PATH**, not the map layer name. Get it from `list_layers` (each feature
-  layer reports its `source`) or:
-  `path = arcpy.Describe(m.listLayers("Parcels")[0]).catalogPath`.
-  Path-based arcpy is thread-safe and the edits appear live in the open map.
+  **data-source PATH**, never the layer name and never `aprx`/`m`. Get the path from
+  **`list_layers`** — each feature layer reports its on-disk `source`
+  (e.g. `C:\data\city.gdb\Parcels`). **Path-based arcpy needs no project at all**, so it is
+  robust even when `aprx`/`m` are `None`, and the edits still appear live in the open map.
+  This is the default for almost everything.
 - **Map / view changes** (add a layer to the map, symbology, definition queries, layout):
-  use **`aprx`** / **`m`** directly.
+  these genuinely need **`aprx`** / **`m`** — so first check they aren't `None`, and if they
+  are, tell the user to open a project / map.
 
 ### When code errors
 Read the traceback that comes back, fix the code, and call the tool again — **keep
@@ -53,16 +58,14 @@ before writing code that references layer or field names.**
 - ArcGIS Pro 3.6/3.7. The active map and layers are live in the app.
 - Pro's Python (for disk-only `Bash` work): `arcgispro-py3`, typically
   `%ProgramFiles%\ArcGIS\Pro\bin\Python\envs\arcgispro-py3\python.exe`.
-- Find a layer by its **name in the Contents pane** with `m.listLayers("Parcels")[0]`,
-  then use its data-source path (`arcpy.Describe(lyr).catalogPath`) for data edits.
+- To act on a layer's data, call **`list_layers`** and take its `source` path — that path
+  is all path-based arcpy needs. Don't rely on `m.listLayers("Parcels")` (it fails if `m`
+  is `None`); use it only for genuine map/view work, after checking `m` isn't `None`.
 
 ## ArcPy quick-recipes
 ```python
-# Inspect the current map (aprx and m are injected — do NOT resolve "CURRENT")
-result = [l.name for l in m.listLayers()]
-
-# Resolve a layer's data-source path, then do DATA edits on the path
-parcels = arcpy.Describe(m.listLayers("Parcels")[0]).catalogPath
+# DATA edits: use the data-source PATH from list_layers (robust, needs no project).
+parcels = r"C:\data\city.gdb\Parcels"   # <- the `source` reported by list_layers
 arcpy.management.AddField(parcels, "POP_DEN", "DOUBLE")
 arcpy.management.CalculateField(parcels, "POP_DEN", "!POP!/!AREASQMI!", "PYTHON3")
 
@@ -70,14 +73,16 @@ arcpy.management.CalculateField(parcels, "POP_DEN", "!POP!/!AREASQMI!", "PYTHON3
 with arcpy.da.SearchCursor(parcels, ["OID@", "POP_DEN"], "POP_DEN > 5000") as cur:
     result = sorted((list(r) for r in cur), key=lambda x: -x[1])[:5]
 
-# Select on the live MAP layer (map/view -> use the layer object from m)
-lyr = m.listLayers("Parcels")[0]
-arcpy.management.SelectLayerByAttribute(lyr, "NEW_SELECTION", "POP_DEN > 5000")
+# Geoprocessing on paths
+out = arcpy.analysis.Buffer(parcels, r"memory\parcels_buf", "100 Meters")[0]
 
-# Geoprocessing on paths, then add the result to the map (map op -> use m)
-roads = arcpy.Describe(m.listLayers("Roads")[0]).catalogPath
-out = arcpy.analysis.Buffer(roads, "in_memory/roads_buf", "100 Meters")[0]
-m.addDataFromPath(out)
+# MAP / view work genuinely needs m — so guard it, then use the layer object.
+if m:
+    lyr = m.listLayers("Parcels")[0]
+    arcpy.management.SelectLayerByAttribute(lyr, "NEW_SELECTION", "POP_DEN > 5000")
+    m.addDataFromPath(out)            # add the buffer result to the open map
+else:
+    print("No active map; open a project/map to change the view.")
 ```
 
 ## Live vs disk
@@ -89,9 +94,12 @@ m.addDataFromPath(out)
 ## Safety (code runs automatically — be careful)
 Generated code executes immediately on the user's open project, and some edits are
 irreversible. Therefore:
-- Wrap feature edits in an **edit session** so they're undoable:
+- Wrap feature edits in an **edit session** so they're undoable. Derive the workspace
+  from the data-source path (don't depend on `aprx`, which may be `None`):
   ```python
-  edit = arcpy.da.Editor(aprx.defaultGeodatabase); edit.startEditing(False, True); edit.startOperation()
+  import os
+  ws = os.path.dirname(parcels)        # the .gdb the feature class lives in
+  edit = arcpy.da.Editor(ws); edit.startEditing(False, True); edit.startOperation()
   # ... cursor edits ...
   edit.stopOperation(); edit.stopEditing(True)
   ```

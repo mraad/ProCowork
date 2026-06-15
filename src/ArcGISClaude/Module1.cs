@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Windows.Threading;
 using Newtonsoft.Json.Linq;
 using ArcGIS.Desktop.Framework;
 using ArcGIS.Desktop.Framework.Contracts;
@@ -12,8 +11,8 @@ namespace ArcGISClaude
 {
     /// <summary>
     /// Add-in module. Acts as the service locator + lifecycle owner for the
-    /// shared infrastructure: filesystem paths, the file-IPC client to the
-    /// in-process ArcPy bridge, and the native approval watcher.
+    /// shared infrastructure: filesystem paths and the always-on execution
+    /// <see cref="BridgeService"/> that serves Claude's live-project tool calls.
     /// The Claude Code engine process itself is owned per-session by the chat
     /// dock pane view model.
     /// </summary>
@@ -26,51 +25,29 @@ namespace ArcGISClaude
             _this ??= (Module1)FrameworkApplication.FindModule("ArcGISClaude_Module");
 
         public AppPaths Paths { get; private set; }
-        public ProBridgeClient Bridge { get; private set; }
-
-        private DispatcherTimer _stateTimer;
+        public BridgeService Bridge { get; private set; }
 
         protected override bool Initialize()
         {
             Paths = AppPaths.Create();
             Paths.EnsureWorkspace();
 
-            Bridge = new ProBridgeClient(Paths.IpcDir);
-
             // Restore saved auth/engine settings (defaults to subscription).
             AuthSettingsStore.Load(EngineSettings.Current);
 
-            // Keep the ribbon button states in sync with the bridge — Start enabled
-            // when it's down; Stop/Chat enabled when it's up — even if the bridge
-            // stops on its own. Polled on the UI thread (cheap heartbeat check).
-            UpdateBridgeState();
-            _stateTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-            _stateTimer.Tick += (s, e) => UpdateBridgeState();
-            _stateTimer.Start();
+            // The bridge is fully automatic: it comes up with the add-in and lives the
+            // whole session, so the user never starts/stops it and it can't go stale.
+            Bridge = new BridgeService(Paths);
+            Bridge.Start();
 
             return true;
         }
 
-        /// <summary>
-        /// Activates the connected/disconnected states that drive the ribbon button
-        /// conditions, based on whether the bridge heartbeat is fresh.
-        /// </summary>
-        public void UpdateBridgeState()
-        {
-            try
-            {
-                bool up = Bridge != null && Bridge.IsAlive();
-                FrameworkApplication.State.Activate(up ? "ArcGISClaude_bridgeUpState" : "ArcGISClaude_bridgeDownState");
-                FrameworkApplication.State.Deactivate(up ? "ArcGISClaude_bridgeDownState" : "ArcGISClaude_bridgeUpState");
-            }
-            catch { /* state manager may not be ready during early init; the timer retries */ }
-        }
-
         protected override void Uninitialize()
         {
-            _stateTimer?.Stop();
-            // Stop the in-process bridge when Pro shuts down (also clears its heartbeat).
-            try { Bridge?.RequestStop(); } catch { }
+            // Stops the poll loop + heartbeat and clears bridge.alive, so the MCP
+            // server immediately sees the bridge as down when Pro shuts down.
+            try { Bridge?.Dispose(); } catch { }
             base.Uninitialize();
         }
 
@@ -100,9 +77,8 @@ namespace ArcGISClaude
 
         public string McpConfigPath => Path.Combine(WorkspaceDir, ".mcp.json");
         public string ClaudeMdPath => Path.Combine(WorkspaceDir, "CLAUDE.md");
-        public string BridgeScript => Path.Combine(PythonDir, "pro_bridge.py");
         public string BridgeMcpScript => Path.Combine(PythonDir, "arcgis_bridge_mcp.py");
-        public string BridgeToolbox => Path.Combine(PythonDir, "ClaudeBridge.pyt");
+        public string RunScriptToolbox => Path.Combine(PythonDir, "RunScript.pyt");
 
         public static AppPaths Create()
         {

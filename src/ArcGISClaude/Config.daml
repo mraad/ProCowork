@@ -15,15 +15,6 @@
     <Subject>Framework</Subject>
   </AddInInfo>
 
-  <conditions>
-    <insertCondition id="ArcGISClaude_bridgeUp" caption="Claude bridge connected">
-      <state id="ArcGISClaude_bridgeUpState" />
-    </insertCondition>
-    <insertCondition id="ArcGISClaude_bridgeDown" caption="Claude bridge not connected">
-      <state id="ArcGISClaude_bridgeDownState" />
-    </insertCondition>
-  </conditions>
-
   <modules>
     <insertModule id="ArcGISClaude_Module"
                   className="Module1"
@@ -37,50 +28,21 @@
       </tabs>
 
       <groups>
-        <group id="ArcGISClaude_Group" caption="Bridge" keytip="A" appearsOnAddInTab="false">
-          <button refID="ArcGISClaude_StartBridge" size="large" />
-          <button refID="ArcGISClaude_StopBridge" size="large" />
+        <group id="ArcGISClaude_Group" caption="Claude" keytip="A" appearsOnAddInTab="false">
           <button refID="ArcGISClaude_ShowChat" size="large" />
         </group>
       </groups>
 
       <controls>
-        <button id="ArcGISClaude_StartBridge"
-                caption="Start"
-                className="StartBridgeButton"
-                loadOnClick="true"
-                keytip="SB"
-                condition="ArcGISClaude_bridgeDown"
-                smallImage="Images\Bridge16.png"
-                largeImage="Images\Bridge32.png">
-          <tooltip heading="Start ArcPy bridge">
-            Start the in-process Python bridge so Claude can use the live (CURRENT) project.<disabledText />
-          </tooltip>
-        </button>
-
-        <button id="ArcGISClaude_StopBridge"
-                caption="Stop"
-                className="StopBridgeButton"
-                loadOnClick="true"
-                keytip="TB"
-                condition="ArcGISClaude_bridgeUp"
-                smallImage="Images\Stop16.png"
-                largeImage="Images\Stop32.png">
-          <tooltip heading="Stop ArcPy bridge">
-            Stop the in-process Python bridge.<disabledText />
-          </tooltip>
-        </button>
-
         <button id="ArcGISClaude_ShowChat"
                 caption="Chat"
                 className="ShowChatDockPane"
                 loadOnClick="true"
                 keytip="CH"
-                condition="ArcGISClaude_bridgeUp"
                 smallImage="Images\Chat16.png"
                 largeImage="Images\Chat32.png">
           <tooltip heading="Claude Chat">
-            Open the Claude assistant panel.<disabledText />
+            Open the Claude assistant panel. The live-project bridge runs automatically.<disabledText />
           </tooltip>
         </button>
       </controls>
