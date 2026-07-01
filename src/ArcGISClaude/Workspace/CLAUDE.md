@@ -53,6 +53,12 @@ Prefer these for reading the live project so you don't guess names:
 `select_by_attribute`, `zoom_to_layer`, `add_field`, `calc_field`, `update_field`,
 `run_geoprocessing`, `ping`.
 
+The inspect/read tools — `list_layers`, `get_field_list`, `describe_layer`, `feature_count`,
+`select_by_attribute`, `zoom_to_layer`, `ping` — are answered **directly by the add-in** (no
+ArcPy, no `"CURRENT"`), so they're fast and work even when `aprx`/`m` are `None`. The rest
+(`run_python_*`, `search_cursor`, `add_field`, `calc_field`, `update_field`,
+`run_geoprocessing`) run through a fresh per-call ArcPy tool.
+
 They are conveniences, not limits — anything they don't cover, write with
 `run_python_current`. **Always inspect the schema (`list_layers` / `get_field_list`)
 before writing code that references layer or field names.**

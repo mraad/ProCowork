@@ -27,6 +27,12 @@ namespace ArcGISClaude
 
         private ClaudeCodeProcess _engine;
 
+        // Claude Code emits system/init at the start of every turn, so the connect
+        // notice must be gated to once per engine session. _hasConnectedBefore then
+        // distinguishes the first connect from a genuine respawn (true reconnect).
+        private bool _sessionAnnounced;
+        private bool _hasConnectedBefore;
+
         public ObservableCollection<ChatItemVm> Items { get; } = new ObservableCollection<ChatItemVm>();
 
         private string _input = "";
@@ -97,6 +103,7 @@ namespace ArcGISClaude
             _engine.StdErrReceived += OnEngineStdErr;
             _engine.Exited += OnEngineExited;
             _engine.Start(EngineSettings.Current);
+            _sessionAnnounced = false;  // new session -> announce once on its first init
             // The ArcPy bridge is owned by Module1 and runs automatically for the
             // whole Pro session — nothing to start here.
         }
@@ -159,7 +166,17 @@ namespace ArcGISClaude
             var model = (string)ev["model"];
             var auth = AuthResolver.Describe(EngineSettings.Current);
             StatusText = $"Connected · {model} · {auth}";
-            Items.Add(new SystemNoticeVm($"Connected to Claude ({model}) using {auth}."));
+
+            // Announce once per engine session; per-turn inits are silent. A fresh
+            // session after a prior one is a genuine reconnect (the process died and
+            // EnsureEngine respawned it), so say so.
+            if (!_sessionAnnounced)
+            {
+                var verb = _hasConnectedBefore ? "Reconnected to" : "Connected to";
+                Items.Add(new SystemNoticeVm($"{verb} Claude ({model}) using {auth}."));
+                _sessionAnnounced = true;
+                _hasConnectedBefore = true;
+            }
         }
 
         private void HandleAssistant(JObject ev)

@@ -1,5 +1,8 @@
 using System;
 using System.IO;
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
@@ -11,125 +14,113 @@ namespace ArcGISClaude.Bridge
     /// the entire ArcGIS Pro session, so — unlike the old in-process Python daemon —
     /// there is nothing to be torn down and go stale.
     ///
-    /// It consumes the SAME file-IPC protocol the MCP server speaks
-    /// (<c>cmd_&lt;id&gt;.json → res_&lt;id&gt;.json</c>, atomic <c>.tmp</c>→rename, a
-    /// <c>bridge.alive</c> heartbeat): a poll loop picks up command files one at a time
-    /// (serial — no geoprocessing re-entrancy), dispatches each to the .NET read path
-    /// (<see cref="AppStateOps"/>) or a fresh ArcPy tool (<see cref="ScriptRunner"/>),
-    /// and writes the result atomically. The heartbeat runs on an INDEPENDENT timer so a
-    /// long-running script can never make the bridge look dead.
+    /// It serves the MCP server over a loopback TCP socket: the server connects to
+    /// <c>127.0.0.1:<see cref="Port"/></c> and exchanges newline-delimited JSON
+    /// (<c>{id,op,args}</c> → <c>{ok,error,data,id}</c>). Commands are handled one at a
+    /// time (serial — no geoprocessing re-entrancy) and dispatched to the .NET read path
+    /// (<see cref="AppStateOps"/>) or a fresh ArcPy tool (<see cref="ScriptRunner"/>).
+    /// A live socket connection is the liveness signal — there is no heartbeat file.
     /// </summary>
     internal sealed class BridgeService : IDisposable
     {
         private readonly string _ipcDir;
-        private readonly string _alivePath;
         private readonly ScriptRunner _runner;
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
 
-        // Wakes the poll loop the instant a command file appears, so latency isn't
-        // bounded by the sweep interval. Max count 1 coalesces a burst of arrivals
-        // into a single wake (the sweep picks up every pending file anyway).
-        private readonly SemaphoreSlim _signal = new SemaphoreSlim(0, 1);
-        private static readonly TimeSpan SweepInterval = TimeSpan.FromMilliseconds(500);
-
-        private FileSystemWatcher _watcher;
-        private Timer _heartbeat;
+        private TcpListener _listener;
         private Task _loop;
+
+        /// <summary>Loopback port the MCP server connects to; 0 until <see cref="Start"/>.</summary>
+        public int Port { get; private set; }
 
         public BridgeService(AppPaths paths)
         {
             _ipcDir = paths.IpcDir;
-            _alivePath = Path.Combine(_ipcDir, "bridge.alive");
             _runner = new ScriptRunner(paths);
         }
 
-        /// <summary>Begin serving immediately; marks the bridge alive at module load.</summary>
+        /// <summary>Bind the loopback listener and begin serving. Sets <see cref="Port"/>.</summary>
         public void Start()
         {
             try { Directory.CreateDirectory(_ipcDir); } catch { }
             ClearStale();
-            WriteHeartbeat();                       // up from the very first moment
-            _heartbeat = new Timer(_ => WriteHeartbeat(), null,
-                TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
 
-            // The MCP server hands off a command with .tmp→rename, which surfaces as a
-            // Renamed event; Created covers any non-atomic writer. Either just wakes the
-            // loop — the sweep is the source of truth, so a missed event only costs
-            // one SweepInterval of latency.
-            try
-            {
-                _watcher = new FileSystemWatcher(_ipcDir, "cmd_*.json")
-                {
-                    NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite,
-                    EnableRaisingEvents = true,
-                };
-                _watcher.Created += (_, __) => Wake();
-                _watcher.Renamed += (_, __) => Wake();
-            }
-            catch { /* no watcher → the periodic sweep still serves every command */ }
+            _listener = new TcpListener(IPAddress.Loopback, 0); // OS picks a free port
+            _listener.Start();
+            Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
 
-            _loop = Task.Run(() => PollLoopAsync(_cts.Token));
+            _loop = Task.Run(() => AcceptLoopAsync(_cts.Token));
         }
 
-        private void Wake()
-        {
-            try { _signal.Release(); } catch (SemaphoreFullException) { /* already pending */ }
-        }
-
-        private async Task PollLoopAsync(CancellationToken ct)
+        // ponytail: one MCP client (one chat session) is served at a time — its requests
+        // are synchronous, so serial dispatch preserves the no-GP-re-entrancy guarantee.
+        // For concurrent chat panes, serve each client on its own task behind a dispatch lock.
+        private async Task AcceptLoopAsync(CancellationToken ct)
         {
             while (!ct.IsCancellationRequested)
             {
                 try
                 {
-                    string[] files;
-                    try { files = Directory.GetFiles(_ipcDir, "cmd_*.json"); }
-                    catch { files = Array.Empty<string>(); }
-                    Array.Sort(files, StringComparer.Ordinal);
-
-                    foreach (var file in files)
-                    {
-                        if (ct.IsCancellationRequested) break;
-                        // Guard against the Windows wildcard quirk where "*.json" can also
-                        // match "*.json.tmp"; only consume true *.json command files.
-                        if (!file.EndsWith(".json", StringComparison.OrdinalIgnoreCase)) continue;
-                        await ProcessOneAsync(file).ConfigureAwait(false);
-                    }
+                    using (var client = await _listener.AcceptTcpClientAsync().ConfigureAwait(false))
+                        await ServeAsync(client, ct).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
-                    // The loop must NEVER die from a stray error.
-                    Log("poll loop error: " + ex);
+                    if (ct.IsCancellationRequested) break; // Stop() unblocked the accept — shutting down
+                    Log("accept loop error: " + ex);
                 }
-
-                // Wait for the watcher to signal a new command, or fall through after
-                // SweepInterval to re-scan (covers any event the watcher dropped).
-                try { await _signal.WaitAsync(SweepInterval, ct).ConfigureAwait(false); }
-                catch (OperationCanceledException) { break; }
             }
         }
 
-        private async Task ProcessOneAsync(string cmdPath)
+        /// <summary>Serve one connection: read command lines, dispatch serially, write replies.</summary>
+        private async Task ServeAsync(TcpClient client, CancellationToken ct)
         {
-            JObject cmd;
-            try { cmd = JObject.Parse(File.ReadAllText(cmdPath)); }
-            catch { return; } // half-written (shouldn't happen — writes are atomic); retry next pass
+            client.NoDelay = true;
+            var utf8 = new UTF8Encoding(false); // no BOM — the first line must be clean JSON
+            using (var stream = client.GetStream())
+            using (var reader = new StreamReader(stream, utf8))
+            using (var writer = new StreamWriter(stream, utf8) { AutoFlush = true })
+            {
+                while (!ct.IsCancellationRequested)
+                {
+                    string line;
+                    try { line = await reader.ReadLineAsync().ConfigureAwait(false); }
+                    catch { break; }          // client dropped
+                    if (line == null) break;  // client closed the connection
+                    if (line.Length == 0) continue;
 
-            // Consume the command file exactly once.
-            try { File.Delete(cmdPath); } catch { }
+                    var reply = await HandleLineAsync(line).ConfigureAwait(false);
+                    try { await writer.WriteLineAsync(reply).ConfigureAwait(false); }
+                    catch { break; }          // client dropped mid-reply
+                }
+            }
+        }
 
-            var id = (string)cmd["id"];
-            if (string.IsNullOrEmpty(id)) return; // can't correlate a reply; drop it
+        /// <summary>Parse one command line, dispatch it, and return the reply JSON line.</summary>
+        private async Task<string> HandleLineAsync(string line)
+        {
+            string id = null;
+            try
+            {
+                var cmd = JObject.Parse(line);
+                id = (string)cmd["id"];
+                var op = (string)cmd["op"];
+                var args = cmd["args"] as JObject ?? new JObject();
 
-            var op = (string)cmd["op"];
-            var args = cmd["args"] as JObject ?? new JObject();
+                JObject res;
+                try { res = await DispatchAsync(op, args, _cts.Token).ConfigureAwait(false); }
+                catch (Exception ex) { res = Err(ex.GetType().Name + ": " + ex.Message); }
 
-            JObject res;
-            try { res = await DispatchAsync(op, args, _cts.Token).ConfigureAwait(false); }
-            catch (Exception ex) { res = Err(ex.GetType().Name + ": " + ex.Message); }
-
-            res["id"] = id;
-            WriteResult(id, res);
+                res["id"] = id;
+                return res.ToString(Newtonsoft.Json.Formatting.None);
+            }
+            catch (Exception ex)
+            {
+                // Malformed line or serialization failure — still return a correlatable error.
+                var res = Err("bridge error: " + ex.Message);
+                res["id"] = id;
+                return res.ToString(Newtonsoft.Json.Formatting.None);
+            }
         }
 
         /// <summary>
@@ -152,28 +143,10 @@ namespace ArcGISClaude.Bridge
             return await _runner.RunAsync(op, args, ct).ConfigureAwait(false);
         }
 
-        private void WriteResult(string id, JObject res)
-        {
-            var final = Path.Combine(_ipcDir, "res_" + id + ".json");
-            var tmp = final + ".tmp";
-            try
-            {
-                File.WriteAllText(tmp, res.ToString());
-                File.Move(tmp, final, overwrite: true); // atomic handoff; the MCP server ignores *.tmp
-            }
-            catch (Exception ex) { Log("write result failed: " + ex); }
-        }
-
-        private void WriteHeartbeat()
-        {
-            // The MCP server only checks this file's mtime (< 5 s) — content is irrelevant.
-            try { File.WriteAllText(_alivePath, DateTime.UtcNow.Ticks.ToString()); } catch { }
-        }
-
         /// <summary>
-        /// Remove leftovers from a previous, hard-killed session. The engine (and its
-        /// MCP server) start per chat session, so at module load nothing is waiting on
-        /// these — including any stale commands, which we drop rather than replay.
+        /// Remove leftovers from a previous, hard-killed session (including stale
+        /// req_/out_ from the ArcPy tool handoff). Nothing is waiting on these at
+        /// module load, so we drop them rather than replay.
         /// </summary>
         private void ClearStale()
         {
@@ -187,11 +160,8 @@ namespace ArcGISClaude.Bridge
         public void Dispose()
         {
             try { _cts.Cancel(); } catch { }
-            try { if (_watcher != null) { _watcher.EnableRaisingEvents = false; _watcher.Dispose(); } } catch { }
-            try { _heartbeat?.Dispose(); } catch { }
+            try { _listener?.Stop(); } catch { }   // unblocks a pending AcceptTcpClientAsync
             try { _loop?.Wait(TimeSpan.FromSeconds(2)); } catch { }
-            try { if (File.Exists(_alivePath)) File.Delete(_alivePath); } catch { } // MCP sees "down" at once
-            try { _signal.Dispose(); } catch { }
             try { _cts.Dispose(); } catch { }
         }
 

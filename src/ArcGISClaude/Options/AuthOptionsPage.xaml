@@ -33,7 +33,11 @@
         <TextBlock Text="Leave blank for the subscription login option." Opacity="0.7" Margin="0,0,0,8" />
 
         <TextBlock Text="Model" />
-        <TextBox Text="{Binding ModelName, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,8" />
+        <ComboBox IsEditable="True"
+                  ItemsSource="{Binding KnownModels}"
+                  Text="{Binding ModelName, UpdateSourceTrigger=PropertyChanged}"
+                  Margin="0,2,0,2" />
+        <TextBlock Text="Pick a known model id, or leave blank to use Claude Code's default." Opacity="0.7" Margin="0,0,0,8" />
 
         <TextBlock Text="Path to 'claude' (optional override)" />
         <TextBox Text="{Binding ClaudePath, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,8" />

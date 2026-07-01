@@ -1,0 +1,76 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+An ArcGIS Pro **add-in** ("Claude in ArcGIS Pro") that embeds the Claude Code engine as a dockable WPF chat panel. Claude writes Python/ArcPy and runs it on the user's live, open project. Windows + ArcGIS Pro only. See `README.md` for the user-facing overview and the full architecture diagram; this file is the developer orientation.
+
+## Build
+
+There is no test suite. This is a Windows/ArcGIS Pro SDK project — it does not build on macOS/Linux, and it does not run outside ArcGIS Pro.
+
+- **Must use full-framework MSBuild, not `dotnet build`.** `dotnet build` compiles but cannot run the Esri `.esriAddinX` packaging task (it uses `CodeTaskFactory`, unsupported by .NET-Core MSBuild), so no add-in is produced. Always **Release, x64**.
+- Requires: ArcGIS Pro SDK for .NET, Visual Studio 2022+, .NET 10 SDK, with `dotnet` on PATH (the SDK resolver needs it).
+- Build in VS (Release|x64) — Esri targets produce `src\ArcGISClaude\bin\x64\Release\ArcGISClaude.esriAddinX`, auto-register it with Pro, and the `DeployAddinToProFolder` target copies it to `Documents\ArcGIS\AddIns\ArcGISPro\` (handles OneDrive/Parallels Documents redirection).
+- Command line:
+  ```powershell
+  & "C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\amd64\MSBuild.exe" `
+    .\src\ArcGISClaude\ArcGISClaude.csproj -t:Rebuild -c Release -p:Platform=x64
+  ```
+- Quick sanity check for the two Python files (no ArcPy needed):
+  ```bash
+  python -c "import ast; ast.parse(open('RunScript.pyt').read()); ast.parse(open('arcgis_bridge_mcp.py').read()); print('both parse OK')"
+  ```
+
+### Targeting a different Pro version
+`ArcGISClaude.csproj` targets **Pro 3.7** via `net10.0-windows` + `Esri.ArcGISPro.Extensions30` `3.7.*`. For Pro 3.6 use `net8.0-windows` + `3.6.*`; for 3.5 and earlier, `net6.0-windows`. (`Config.daml`'s `desktopVersion="3.6"` is the *minimum* and stays put.)
+
+### Dependency rule
+All ArcGIS Pro assemblies and Newtonsoft.Json (pinned to Pro's `13.0.3`) use `<ExcludeAssets>runtime</ExcludeAssets>` — Pro provides them at runtime; shipping our own copies causes assembly-load/binding conflicts. Keep this on any new PackageReference that Pro already supplies.
+
+## Architecture: three processes, one loopback bridge
+
+The system spans three processes, all local:
+
+1. **The add-in (in-process, inside ArcGIS Pro)** — WPF panel + the C# that touches the live project.
+2. **The Claude Code engine** — a headless `claude` child process, one per chat session.
+3. **The Python MCP server** (`arcgis_bridge_mcp.py`) — a zero-dependency stdlib stdio MCP server, child process.
+
+Data flow of one live-project tool call:
+`chat panel → engine (child) → MCP server (child) → loopback TCP → BridgeService (in-process) → AppStateOps (reads) or ScriptRunner→RunScript.pyt (writes) → live map → results stream back up`.
+
+**Why the bridge exists (the core constraint):** `arcpy.mp.ArcGISProject("CURRENT")` only resolves inside Pro's own Python on the foreground GP thread. Rather than keep a long-lived Python daemon there (which goes stale), a persistent **C# bridge** owns the session and, per request, either answers instantly from the .NET SDK (reads) or stands up **one fresh ArcPy geoprocessing tool** (writes) — no daemon to outlive its host.
+
+### Ownership & lifecycle (who owns what)
+- `Module1` (the add-in Module, `autoLoad="true"`) owns **`BridgeService`** for the whole Pro session. It starts the bridge *first* (to learn the loopback port), then seeds the workspace + `.mcp.json`. The bridge is fully automatic — no UI to start/stop it.
+- `ChatDockPaneViewModel` owns the **Claude engine** (`ClaudeCodeProcess`), one per chat session, and respawns it (`EnsureEngine`) if it dies. Detaches events + disposes the old one to avoid handle/subscription leaks.
+
+### The bridge protocol (`Bridge/BridgeService.cs`)
+- Loopback TCP, **ephemeral port** (OS-chosen at startup), newline-delimited JSON: `{id,op,args}` → `{ok,error,data,id}`. A live socket connection *is* the liveness signal (no heartbeat file).
+- Port is handed to the MCP server via `ARCGIS_CLAUDE_PORT` in the generated `.mcp.json`, rewritten each session (because the port changes).
+- **Serial dispatch** — one command at a time, no GP re-entrancy. Assumes one chat session; concurrency would need per-client tasks behind a dispatch lock (see the `ponytail:` note in `AcceptLoopAsync`).
+
+### Read path vs write path (`DispatchAsync`)
+- **Reads** (`list_layers`, `get_field_list`, `describe_layer`, `feature_count`, `select_by_attribute`, `zoom_to_layer`, `ping`) → `AppStateOps` on Pro's CIM thread via the .NET SDK. **No ArcPy, no `"CURRENT"`** — fast and works even with no project open.
+- **Everything else** (`run_python_*`, `add_field`, `calc_field`, `update_field`, `search_cursor`, `run_geoprocessing`) → `ScriptRunner` runs `RunScript.pyt\RunScript` as a **fresh foreground GP tool per call** (`GPExecuteToolFlags.GPThread`, kept out of the user's GP history), handing off request/result via `req_*.json`/`out_*.json` files. 290 s timeout (just under the MCP server's 300 s).
+- Data edits should operate on the layer's **data-source path** (from `list_layers`' `source`), not layer objects — path-based ArcPy is robust when `aprx`/`m` are `None`, and edits still show live.
+
+### Engine wiring (`Engine/`)
+- `ClaudeCodeProcess` spawns `claude -p --output-format stream-json --input-format stream-json --verbose --mcp-config <path>` + `--permission-mode` + `--model`. stdin = user turns as stream-json; stdout = one JSON event per line. `StreamJsonReader` parses events; `ChatDockPaneViewModel.HandleEvent` maps `system/init`, `assistant`, `user` (tool results), `result` to view models.
+- `AuthResolver.Apply` shapes the child env by `AuthMode`. **In Subscription mode it strips `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`** so the subscription login isn't silently overridden into API billing. `EngineSettings` defaults: model `claude-opus-4-8`, `PermissionMode = "bypassPermissions"` (auto-run, no approval prompt). To reintroduce an approval gate, change `PermissionMode` to `acceptEdits`/`default` — the design supports it without rework.
+- Auth secrets are stored DPAPI-encrypted (`Options/AuthSettingsStore`).
+
+### Rendering (`UI/`)
+Engine emits Markdown → `MarkdownToHtml` converts to a themed HTML subset → `HtmlPresenter` renders it in WPF. Tool-call cards (generated code + results) are toggled by `ShowToolOutputs`.
+
+## Filesystem locations (resolved in `Module1.AppPaths`)
+- **Workspace** (engine cwd): `Documents\ArcGIS\ClaudeWorkspace\` — holds the seeded `CLAUDE.md` and the generated `.mcp.json`. Uses `MyDocuments` (not `%USERPROFILE%\Documents`) so redirected Documents (OneDrive/Parallels) resolves.
+- **IPC spool**: `%USERPROFILE%\.arcgis_claude\` — the `req_*`/`out_*` handoff files and `bridge.log`. Deliberately *not* the temp dir (Pro sets a per-session TMP that .NET and Python resolve differently).
+
+## Two different CLAUDE.md files — don't confuse them
+- **This file** (`/CLAUDE.md`) — guidance for developing this repo.
+- **`src/ArcGISClaude/Workspace/CLAUDE.md`** — a **shipped runtime artifact**: it is seeded into the user's workspace on first run and is the system-prompt-level instructions for the *embedded* Claude that drives the live map (how to use the `arcgis_bridge` tools, ArcPy recipes, safety rules). Edit it to change the embedded assistant's behavior, not to document the build.
+
+## Conventions
+- C# in `src/ArcGISClaude/`, grouped by concern: `Engine/`, `Bridge/`, `UI/`, `Options/`, `Python/`, `Workspace/`. `Nullable`/`ImplicitUsings` are **disabled**; explicit `using`s, `internal sealed` classes, doc-comments explaining *why*.
+- DAML (`Config.daml`) declares the ribbon tab, `Chat` button, dock pane, and options page; its `className` attributes bind to the C# classes by name.
+- `ponytail:` comments mark deliberate simplifications and name the upgrade path — respect them; don't "fix" them without cause.

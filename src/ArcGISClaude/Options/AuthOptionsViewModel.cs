@@ -34,6 +34,18 @@ namespace ArcGISClaude
             set { if (SetProperty(ref _modelName, value)) IsModified = true; }
         }
 
+        /// <summary>
+        /// Known model ids offered in the Options dropdown. The box stays editable
+        /// so a user can still type a custom id or clear it (blank = CLI default).
+        /// </summary>
+        public System.Collections.Generic.IReadOnlyList<string> KnownModels { get; } = new[]
+        {
+            "claude-opus-4-8",
+            "claude-sonnet-5",
+            "claude-haiku-4-5-20251001",
+            "claude-fable-5",
+        };
+
         private string _claudePath;
         public string ClaudePath
         {
