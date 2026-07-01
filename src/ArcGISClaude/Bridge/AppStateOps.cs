@@ -70,6 +70,11 @@ namespace ArcGISClaude.Bridge
             var map = ResolveMap((string)args["map"]);
             if (map == null) return new List<object>(); // no map open is not an error
 
+            // Counting rows means a GetCount() per feature layer, which can force a
+            // full scan on large/enterprise sources. Skip it by default (feature_count
+            // gives it on demand); include only when the caller explicitly asks.
+            bool includeCounts = (bool?)args["include_counts"] ?? false;
+
             var layers = new List<object>();
             foreach (var layer in map.GetLayersAsFlattenedList())
             {
@@ -86,7 +91,7 @@ namespace ArcGISClaude.Bridge
                         using (var table = fl.GetTable())
                         {
                             info["source"] = DataSourcePath(table);
-                            info["count"] = table.GetCount();
+                            if (includeCounts) info["count"] = table.GetCount();
                             if (table is FeatureClass fc)
                                 using (var def = fc.GetDefinition())
                                     info["geometry"] = def.GetShapeType().ToString();

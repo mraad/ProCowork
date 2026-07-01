@@ -35,13 +35,16 @@ namespace ArcGISClaude.UI
     internal sealed class AssistantMessageVm : ChatItemVm
     {
         private string _text;
+        private string _html;
         public string Text
         {
             get => _text;
-            set { if (Set(ref _text, value)) Raise(nameof(Html)); }
+            set { if (Set(ref _text, value)) { _html = null; Raise(nameof(Html)); } }
         }
 
-        public string Html => MarkdownToHtml.Convert(_text);
+        // Converted lazily and cached: WPF reads Html more than once per bind
+        // (measure/arrange), and the Markdown→HTML pass is pure for a fixed Text.
+        public string Html => _html ??= MarkdownToHtml.Convert(_text);
     }
 
     /// <summary>System/connection notices and surfaced errors.</summary>

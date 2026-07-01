@@ -29,7 +29,9 @@ you (best-effort) and hands it in.
 - **Data edits** (add/calculate fields, cursors, geoprocessing): operate on the layer's
   **data-source PATH**, never the layer name and never `aprx`/`m`. Get the path from
   **`list_layers`** — each feature layer reports its on-disk `source`
-  (e.g. `C:\data\city.gdb\Parcels`). **Path-based arcpy needs no project at all**, so it is
+  (e.g. `C:\data\city.gdb\Parcels`); row counts are omitted by default (pass
+  `include_counts=true`, or use `feature_count`, when you need them).
+  **Path-based arcpy needs no project at all**, so it is
   robust even when `aprx`/`m` are `None`, and the edits still appear live in the open map.
   This is the default for almost everything.
 - **Map / view changes** (add a layer to the map, symbology, definition queries, layout):

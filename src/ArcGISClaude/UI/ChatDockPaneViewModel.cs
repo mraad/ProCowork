@@ -79,13 +79,26 @@ namespace ArcGISClaude
         {
             if (_engine != null && _engine.IsRunning) return;
 
+            // A previous engine that exited or was stopped must be detached and
+            // disposed before we replace it, or its process handle and event
+            // subscriptions leak. Stale tool ids from that session go with it.
+            if (_engine != null)
+            {
+                _engine.EventReceived -= OnEngineEvent;
+                _engine.StdErrReceived -= OnEngineStdErr;
+                _engine.Exited -= OnEngineExited;
+                _engine.Dispose();
+                _toolsById.Clear();
+            }
+
             var paths = Module1.Current.Paths;
             _engine = new ClaudeCodeProcess(paths.WorkspaceDir, paths.McpConfigPath);
             _engine.EventReceived += OnEngineEvent;
             _engine.StdErrReceived += OnEngineStdErr;
             _engine.Exited += OnEngineExited;
             _engine.Start(EngineSettings.Current);
-            // The ArcPy bridge is started/stopped manually via the ribbon buttons.
+            // The ArcPy bridge is owned by Module1 and runs automatically for the
+            // whole Pro session — nothing to start here.
         }
 
         private async Task OnSendAsync()

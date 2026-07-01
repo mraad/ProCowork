@@ -67,6 +67,9 @@ def _call_bridge(op, args, timeout=CALL_TIMEOUT):
         return {"ok": False, "error": "failed to submit command: %s" % ex, "data": None}
 
     deadline = time.time() + timeout
+    # Poll fast at first so quick reads/edits return almost immediately, then back
+    # off to 50 ms so a long geoprocessing call doesn't spin the CPU.
+    interval = 0.005
     while time.time() < deadline:
         if os.path.exists(res_path):
             try:
@@ -75,11 +78,13 @@ def _call_bridge(op, args, timeout=CALL_TIMEOUT):
                 os.remove(res_path)
                 return res
             except Exception:
-                time.sleep(0.05)  # half-written; retry
+                time.sleep(0.02)  # half-written; retry shortly
                 continue
         if not _bridge_alive():
             return {"ok": False, "error": _NOT_RUNNING_MSG, "data": None}
-        time.sleep(0.05)
+        time.sleep(interval)
+        if interval < 0.05:
+            interval = min(0.05, interval * 1.5)
     return {"ok": False, "error": "bridge timed out after %ss for op '%s'" % (timeout, op),
             "data": None}
 
@@ -114,8 +119,14 @@ TOOLS = [
     },
     {
         "name": "list_layers",
-        "description": "List layers in the active (or named) map of the CURRENT project, with type/visibility/source and feature counts.",
-        "inputSchema": _S(map={"type": "string", "description": "Optional map name; defaults to the active map."}),
+        "description": ("List layers in the active (or named) map of the CURRENT project, with "
+                        "type/visibility/geometry and each feature layer's on-disk source path. "
+                        "Feature counts are omitted by default (they can be slow on large sources); "
+                        "pass include_counts=true to include them, or use feature_count for one layer."),
+        "inputSchema": _S(
+            map={"type": "string", "description": "Optional map name; defaults to the active map."},
+            include_counts={"type": "boolean",
+                            "description": "Include each feature layer's row count (slower). Default false."}),
     },
     {
         "name": "get_field_list",

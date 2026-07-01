@@ -23,6 +23,13 @@ namespace ArcGISClaude.UI
             @"\*\*(?<b>[^*]+?)\*\*|\*(?<i>[^*]+?)\*|`(?<c>[^`]+?)`|\[(?<t>[^\]]+?)\]\((?<u>[^)]+?)\)",
             RegexOptions.Compiled);
 
+        // Per-line block patterns, compiled once (they run on every line of every
+        // streaming update rather than being recompiled/looked-up per call).
+        private static readonly Regex HeaderRx = new Regex(@"^(#{1,6})\s+(.*)$", RegexOptions.Compiled);
+        private static readonly Regex BulletRx = new Regex(@"^\s*[-*+]\s+(.*)$", RegexOptions.Compiled);
+        private static readonly Regex NumberedRx = new Regex(@"^\s*(\d+)\.\s+(.*)$", RegexOptions.Compiled);
+        private static readonly Regex TableSepRx = new Regex(@"^[\s|:\-]+$", RegexOptions.Compiled);
+
         public static string Convert(string md)
         {
             if (string.IsNullOrEmpty(md)) return "";
@@ -75,7 +82,7 @@ namespace ArcGISClaude.UI
                     continue;
                 }
 
-                var h = Regex.Match(t, @"^(#{1,6})\s+(.*)$");        // header
+                var h = HeaderRx.Match(t);                            // header
                 if (h.Success)
                 {
                     FlushPara();
@@ -86,7 +93,7 @@ namespace ArcGISClaude.UI
                     i++; continue;
                 }
 
-                var b = Regex.Match(t, @"^\s*[-*+]\s+(.*)$");         // bullet list
+                var b = BulletRx.Match(t);                            // bullet list
                 if (b.Success)
                 {
                     FlushPara();
@@ -96,13 +103,13 @@ namespace ArcGISClaude.UI
                         sb.Append("<li>").Append(Inline(b.Groups[1].Value)).Append("</li>");
                         i++;
                         if (i >= lines.Length) break;
-                        b = Regex.Match(lines[i].TrimEnd(), @"^\s*[-*+]\s+(.*)$");
+                        b = BulletRx.Match(lines[i].TrimEnd());
                     } while (b.Success);
                     sb.Append("</ul>");
                     continue;
                 }
 
-                var n = Regex.Match(t, @"^\s*(\d+)\.\s+(.*)$");       // numbered list
+                var n = NumberedRx.Match(t);                          // numbered list
                 if (n.Success)
                 {
                     FlushPara();
@@ -112,7 +119,7 @@ namespace ArcGISClaude.UI
                         sb.Append("<li>").Append(Inline(n.Groups[2].Value)).Append("</li>");
                         i++;
                         if (i >= lines.Length) break;
-                        n = Regex.Match(lines[i].TrimEnd(), @"^\s*(\d+)\.\s+(.*)$");
+                        n = NumberedRx.Match(lines[i].TrimEnd());
                     } while (n.Success);
                     sb.Append("</ol>");
                     continue;
@@ -166,7 +173,7 @@ namespace ArcGISClaude.UI
         }
 
         private static bool IsTableSeparator(string s)
-            => s.IndexOf('-') >= 0 && Regex.IsMatch(s, @"^[\s|:\-]+$");
+            => s.IndexOf('-') >= 0 && TableSepRx.IsMatch(s);
 
         private static string[] SplitCells(string row)
         {

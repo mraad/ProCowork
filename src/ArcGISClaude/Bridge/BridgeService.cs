@@ -26,6 +26,13 @@ namespace ArcGISClaude.Bridge
         private readonly ScriptRunner _runner;
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
 
+        // Wakes the poll loop the instant a command file appears, so latency isn't
+        // bounded by the sweep interval. Max count 1 coalesces a burst of arrivals
+        // into a single wake (the sweep picks up every pending file anyway).
+        private readonly SemaphoreSlim _signal = new SemaphoreSlim(0, 1);
+        private static readonly TimeSpan SweepInterval = TimeSpan.FromMilliseconds(500);
+
+        private FileSystemWatcher _watcher;
         private Timer _heartbeat;
         private Task _loop;
 
@@ -44,7 +51,29 @@ namespace ArcGISClaude.Bridge
             WriteHeartbeat();                       // up from the very first moment
             _heartbeat = new Timer(_ => WriteHeartbeat(), null,
                 TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+
+            // The MCP server hands off a command with .tmp→rename, which surfaces as a
+            // Renamed event; Created covers any non-atomic writer. Either just wakes the
+            // loop — the sweep is the source of truth, so a missed event only costs
+            // one SweepInterval of latency.
+            try
+            {
+                _watcher = new FileSystemWatcher(_ipcDir, "cmd_*.json")
+                {
+                    NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite,
+                    EnableRaisingEvents = true,
+                };
+                _watcher.Created += (_, __) => Wake();
+                _watcher.Renamed += (_, __) => Wake();
+            }
+            catch { /* no watcher → the periodic sweep still serves every command */ }
+
             _loop = Task.Run(() => PollLoopAsync(_cts.Token));
+        }
+
+        private void Wake()
+        {
+            try { _signal.Release(); } catch (SemaphoreFullException) { /* already pending */ }
         }
 
         private async Task PollLoopAsync(CancellationToken ct)
@@ -73,7 +102,9 @@ namespace ArcGISClaude.Bridge
                     Log("poll loop error: " + ex);
                 }
 
-                try { await Task.Delay(100, ct).ConfigureAwait(false); }
+                // Wait for the watcher to signal a new command, or fall through after
+                // SweepInterval to re-scan (covers any event the watcher dropped).
+                try { await _signal.WaitAsync(SweepInterval, ct).ConfigureAwait(false); }
                 catch (OperationCanceledException) { break; }
             }
         }
@@ -128,8 +159,7 @@ namespace ArcGISClaude.Bridge
             try
             {
                 File.WriteAllText(tmp, res.ToString());
-                if (File.Exists(final)) File.Delete(final);
-                File.Move(tmp, final); // atomic handoff; the MCP server ignores *.tmp
+                File.Move(tmp, final, overwrite: true); // atomic handoff; the MCP server ignores *.tmp
             }
             catch (Exception ex) { Log("write result failed: " + ex); }
         }
@@ -157,9 +187,11 @@ namespace ArcGISClaude.Bridge
         public void Dispose()
         {
             try { _cts.Cancel(); } catch { }
+            try { if (_watcher != null) { _watcher.EnableRaisingEvents = false; _watcher.Dispose(); } } catch { }
             try { _heartbeat?.Dispose(); } catch { }
             try { _loop?.Wait(TimeSpan.FromSeconds(2)); } catch { }
             try { if (File.Exists(_alivePath)) File.Delete(_alivePath); } catch { } // MCP sees "down" at once
+            try { _signal.Dispose(); } catch { }
             try { _cts.Dispose(); } catch { }
         }
 

@@ -105,20 +105,12 @@ def _resolve_tool(name):
 
 # --------------------------------------------------------------------------- #
 #  operations  (names match the MCP tool catalog)
+#
+#  Only the write / code-exec ops live here. The live-read ops (ping,
+#  list_layers, get_field_list, describe_layer, feature_count,
+#  select_by_attribute, zoom_to_layer) are answered by the C# fast path
+#  (AppStateOps) and never reach this tool, so they are intentionally absent.
 # --------------------------------------------------------------------------- #
-def op_ping(_args):
-    info = {"connected": _APRX is not None,
-            "project": getattr(_APRX, "filePath", None) if _APRX is not None else None}
-    if _APRX is not None:
-        try:
-            info["active_map"] = getattr(_active_map(), "name", None)
-            info["maps"] = [mp.name for mp in _APRX.listMaps()]
-            info["default_gdb"] = _APRX.defaultGeodatabase
-        except Exception:
-            pass
-    return info
-
-
 def op_run_python_current(args):
     """Execute Claude-generated code. `arcpy`, best-effort `aprx`/`m`, and helpers
     proj()/active_map() are injected. Captures stdout, an optional JSON-serializable
@@ -143,64 +135,6 @@ def op_run_python_file(args):
     return op_run_python_current({"code": code})
 
 
-def op_list_layers(args):
-    m = _active_map(args.get("map"))
-    if m is None:
-        return []
-    out = []
-    for lyr in m.listLayers():
-        info = {"name": lyr.name, "visible": bool(lyr.visible)}
-        try:
-            info["is_feature"] = bool(lyr.isFeatureLayer)
-            info["is_raster"] = bool(lyr.isRasterLayer)
-            info["is_group"] = bool(lyr.isGroupLayer)
-        except Exception:
-            pass
-        try:
-            if lyr.supports("DATASOURCE"):
-                info["source"] = lyr.dataSource
-        except Exception:
-            pass
-        if getattr(lyr, "isFeatureLayer", False):
-            try:
-                info["geometry"] = arcpy.Describe(lyr).shapeType
-                info["count"] = int(arcpy.management.GetCount(lyr)[0])
-            except Exception:
-                pass
-        out.append(info)
-    return out
-
-
-def op_get_field_list(args):
-    return [
-        {"name": f.name, "type": f.type, "alias": f.aliasName, "length": f.length}
-        for f in arcpy.ListFields(_source(args["layer"], args.get("map")))
-    ]
-
-
-def op_describe_layer(args):
-    src = _source(args["layer"], args.get("map"))
-    d = arcpy.Describe(src)
-    out = {
-        "name": args["layer"],
-        "dataType": getattr(d, "dataType", None),
-        "shapeType": getattr(d, "shapeType", None),
-        "catalogPath": getattr(d, "catalogPath", None),
-    }
-    sr = getattr(d, "spatialReference", None)
-    if sr is not None:
-        out["spatialReference"] = {"name": sr.name, "factoryCode": sr.factoryCode}
-    try:
-        out["count"] = int(arcpy.management.GetCount(src)[0])
-    except Exception:
-        pass
-    return out
-
-
-def op_feature_count(args):
-    return {"count": int(arcpy.management.GetCount(_source(args["layer"], args.get("map")))[0])}
-
-
 def op_search_cursor(args):
     src = _source(args["layer"], args.get("map"))
     fields = args["fields"]
@@ -213,24 +147,6 @@ def op_search_cursor(args):
             rows.append([_jsonable(v) for v in r])
     return {"fields": fields, "rows": rows,
             "truncated": limit is not None and len(rows) >= int(limit)}
-
-
-def op_select_by_attribute(args):
-    lyr = _find_layer(args["layer"], args.get("map"))
-    sel_type = args.get("selection_type", "NEW_SELECTION")
-    arcpy.management.SelectLayerByAttribute(lyr, sel_type, args.get("where"))
-    return {"selected": int(arcpy.management.GetCount(lyr)[0])}
-
-
-def op_zoom_to_layer(args):
-    lyr = _find_layer(args["layer"], args.get("map"))
-    view = _proj().activeView
-    extent = arcpy.Describe(lyr).extent
-    try:
-        view.camera.setExtent(extent)
-        return {"zoomed": True}
-    except Exception as ex:
-        return {"zoomed": False, "reason": str(ex)}
 
 
 def op_add_field(args):
@@ -270,16 +186,9 @@ def op_run_geoprocessing(args):
 
 
 OPS = {
-    "ping": op_ping,
     "run_python_current": op_run_python_current,
     "run_python_file": op_run_python_file,
-    "list_layers": op_list_layers,
-    "get_field_list": op_get_field_list,
-    "describe_layer": op_describe_layer,
-    "feature_count": op_feature_count,
     "search_cursor": op_search_cursor,
-    "select_by_attribute": op_select_by_attribute,
-    "zoom_to_layer": op_zoom_to_layer,
     "add_field": op_add_field,
     "calc_field": op_calc_field,
     "update_field": op_update_field,
