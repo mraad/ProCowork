@@ -16,22 +16,52 @@ Claude Code login (Pro/Max subscription, or an API key)** — no hard-coded key.
 
 ## How it works
 
+Everything runs on your machine. The parts that touch the live project are **in-process**
+inside ArcGIS Pro (the add-in's .NET code); the Claude engine and the MCP server are local
+**child processes** that reach into Pro over a loopback socket.
+
 ```
-WPF chat panel  ──stdio stream-json──►  claude (headless engine, your subscription)
-  (dock pane)                              │  built-in tools (Bash/Read/Write/Edit…) for disk work
-                                           │  MCP tool calls for the LIVE project ▼
-   arcgis_bridge (stdio MCP, stdlib Python) ──file IPC──►  pro_bridge.py
-                                                            (runs INSIDE ArcGIS Pro's
-                                                             in-process Python, where
-                                                             arcpy "CURRENT" is live)
+You type a prompt in the Claude dock pane   (WPF, in-process)
+        │
+        ▼
+Claude Code engine   ── headless `claude`, your subscription / API key   (child process)
+        │
+        ├─ built-in tools (Bash / Read / Write / Edit) ───────────►  files on disk
+        │
+        └─ MCP tool call   (run_python_current, list_layers, …)
+               │   stdio JSON-RPC
+               ▼
+        arcgis_bridge_mcp.py   ── zero-dependency stdlib MCP server   (child process)
+               │   newline-delimited JSON over 127.0.0.1:<port>   (loopback TCP)
+               ▼
+        BridgeService (C#)   ── persistent, owned by Module1, lives the whole Pro session
+               │                 (in-process — same process as ArcGIS Pro)
+               │
+               ├─ read ops ───────►  AppStateOps   (.NET SDK on Pro's CIM thread; no arcpy,
+               │                      no "CURRENT")  ·  list_layers, get_field_list,
+               │                      describe_layer, feature_count, select_by_attribute,
+               │                      zoom_to_layer, ping
+               │
+               └─ run_python_* / data writes ──►  ScriptRunner ──►  RunScript.pyt
+                                      one fresh foreground geoprocessing tool per call;
+                                      resolves arcpy.mp.ArcGISProject("CURRENT") best-effort
+               │
+               ▼
+        LIVE project & map   ──  results stream back up the same path to the panel
 ```
 
-The key trick: `arcpy.mp.ArcGISProject("CURRENT")` only works **inside Pro's own Python**.
-So a tiny daemon (`pro_bridge.py`) runs there and executes Claude's generated code against
-the open project; the add-in and the MCP server talk to it through a temp-folder IPC
-channel. The centerpiece tool is **`run_python_current(code)`** — arbitrary ArcPy on the
-live map. Curated tools (`list_layers`, `add_field`, `search_cursor`, …) ride the same
-bridge.
+The key constraint: `arcpy.mp.ArcGISProject("CURRENT")` only resolves **inside Pro's own
+Python on the foreground thread**. The old design kept a long-lived Python daemon there,
+which could go stale. This design flips it: a persistent **C# bridge** owns the session and,
+per request, either answers instantly from the .NET SDK (reads) or stands up **one fresh
+ArcPy geoprocessing tool** (`RunScript.pyt`) that resolves `CURRENT` and runs Claude's
+code — so there's no daemon to outlive its host. The centerpiece tool is
+**`run_python_current(code)`** (arbitrary ArcPy on the live map); curated tools
+(`list_layers`, `add_field`, `search_cursor`, …) ride the same bridge.
+
+The bridge's loopback port is ephemeral (chosen at startup) and handed to the MCP server via
+`ARCGIS_CLAUDE_PORT` in the generated `.mcp.json`. It starts **automatically** with the
+add-in — there's no button to press and nothing to keep alive.
 
 ---
 
@@ -74,13 +104,13 @@ $env:PATH = "$env:ProgramFiles\dotnet;$env:PATH"   # SDK resolver needs dotnet o
 1. Make sure you've logged into Claude Code with your subscription once (`claude`, then
    `/login`).
 2. In ArcGIS Pro, open a project, then go to the **Claude** ribbon tab.
-3. Click **Start Bridge** (one time per Pro session). It tries to auto-start the
-   in-process ArcPy bridge; if it can't, it copies a one-line bootstrap to your clipboard —
-   paste it once into **Analysis ▸ Python**.
-4. Click **Chat** to open the panel. Type a request and press **Enter**.
+3. Click **Chat** to open the panel. Type a request and press **Enter**. The live-project
+   bridge is already running — it starts automatically with the add-in, so there's no
+   "Start Bridge" step.
 
-The status bar shows the model and that it's using your subscription. By default the
-engine uses model `claude-opus-4-8`; change it on **Options ▸ Claude**.
+The status bar shows the model and that it's using your subscription. By default the engine
+uses model `claude-opus-4-8`; pick a different one from the **Model** dropdown on
+**Options ▸ Claude** (or leave it blank to use Claude Code's own default).
 
 ### Try it
 - "List the layers in the current map."
@@ -126,14 +156,16 @@ without rework.
 
 - **"claude not found"** — install Claude Code and log in; or set the path on
   **Options ▸ Claude**.
-- **Live tools say the bridge isn't running** — click **Start Bridge**, or paste the
-  bootstrap into Analysis ▸ Python. Disk/Bash analysis still works without it.
+- **Live tools say the bridge isn't responding** — the bridge starts automatically with the
+  add-in, so this usually means Pro is still loading or the add-in didn't load. Confirm the
+  **Claude** ribbon tab is present, then retry; disk/Bash analysis works regardless. Check
+  `%USERPROFILE%\.arcgis_claude\bridge.log` if it persists.
 - **It's billing my API account, not my subscription** — an `ANTHROPIC_API_KEY` is set
   somewhere with higher precedence. Use subscription mode (which strips it) and confirm via
   the status bar / **Options ▸ Claude ▸ Check**.
-- **Edits don't appear** — some live-map writes from the bridge's background thread may not
-  refresh immediately; re-running or a manual refresh helps. (A future C# `arcgis_live` MCP
-  moves map/UI writes onto Pro's main thread.)
+- **Edits don't appear** — reads and map/selection writes run on Pro's CIM thread and ArcPy
+  runs on the foreground GP thread, so edits generally show up live; if a data write doesn't
+  refresh, re-run the request or refresh the layer.
 
 ---
 
@@ -142,27 +174,28 @@ without rework.
 ```
 ArcGISClaude.sln
 src/ArcGISClaude/
-  Config.daml                 ribbon tab, dock pane, buttons, options page
-  Module1.cs                  paths, bridge client, workspace seeding, settings load
+  Config.daml                 ribbon tab, dock pane, Chat button, options page
+  Module1.cs                  paths, owns the BridgeService, workspace + .mcp.json seeding, settings load
   Engine/                     ClaudeCodeProcess, StreamJsonReader, AuthResolver, ClaudeLocator, EngineSettings
-  Bridge/                     ProBridgeClient, BridgeBootstrap
+  Bridge/                     BridgeService (loopback server), AppStateOps (.NET read path), ScriptRunner (per-call ArcPy tool)
   UI/                         ChatDockPane (View/VM), item view models, templates
   Options/                    AuthOptionsPage (View/VM), AuthSettingsStore (DPAPI)
-  Python/                     pro_bridge.py, arcgis_bridge_mcp.py, ClaudeBridge.pyt
+  Python/                     arcgis_bridge_mcp.py (stdlib MCP server), RunScript.pyt (per-call ArcPy executor)
   Workspace/CLAUDE.md         "Claude's own file" (seeded to the user workspace)
   Images/                     ribbon icons (placeholders — replace with real art)
 ```
 
 Runtime workspace (engine cwd, seeded on first run):
 `%USERPROFILE%\Documents\ArcGIS\ClaudeWorkspace\` — holds `CLAUDE.md` and the generated
-`.mcp.json`.
+`.mcp.json`. The bridge's request/result handoff files live under
+`%USERPROFILE%\.arcgis_claude\` (alongside `bridge.log`).
 
 ---
 
 ## Status
 
-MVP. Implemented: add-in shell, headless engine + native rendering, subscription auth,
-in-process ArcPy bridge + zero-dependency MCP server, the `run_python_current` centerpiece
-plus curated tools, auto-start + paste fallback, and the options page. Not yet:
-token-level streaming, the `arcgis_live` QueuedTask MCP for thread-safe map/UI writes, and
-the optional approval gate.
+MVP. Implemented: add-in shell, headless engine + native rendering, subscription auth, the
+persistent **C# execution bridge** (loopback MCP transport, .NET fast-path reads + a
+per-call ArcPy tool for writes — no long-lived Python daemon), the `run_python_current`
+centerpiece plus curated tools, and the options page (auth + model dropdown). Not yet:
+token-level streaming and the optional approval gate.

@@ -30,23 +30,25 @@ namespace ArcGISClaude
         protected override bool Initialize()
         {
             Paths = AppPaths.Create();
-            Paths.EnsureWorkspace();
 
             // Restore saved auth/engine settings (defaults to subscription).
             AuthSettingsStore.Load(EngineSettings.Current);
 
             // The bridge is fully automatic: it comes up with the add-in and lives the
             // whole session, so the user never starts/stops it and it can't go stale.
+            // Start it first so its loopback port is known before we write .mcp.json.
             Bridge = new BridgeService(Paths);
             Bridge.Start();
+
+            Paths.EnsureWorkspace(Bridge.Port);
 
             return true;
         }
 
         protected override void Uninitialize()
         {
-            // Stops the poll loop + heartbeat and clears bridge.alive, so the MCP
-            // server immediately sees the bridge as down when Pro shuts down.
+            // Stops the listener + serve loop; the dropped socket tells the MCP
+            // server the bridge is down the moment Pro shuts down.
             try { Bridge?.Dispose(); } catch { }
             base.Uninitialize();
         }
@@ -69,7 +71,7 @@ namespace ArcGISClaude
         /// <summary>Working directory the Claude Code engine runs in.</summary>
         public string WorkspaceDir { get; private set; }
 
-        /// <summary>Shared file-IPC spool: %TEMP%\arcgis_claude.</summary>
+        /// <summary>Spool for the ArcPy tool handoff (req_/out_), under %USERPROFILE%\.arcgis_claude.</summary>
         public string IpcDir { get; private set; }
 
         /// <summary>Path to ArcGIS Pro's bundled Python (arcgispro-py3).</summary>
@@ -122,7 +124,7 @@ namespace ArcGISClaude
             return "python"; // last resort; the MCP server only needs the stdlib
         }
 
-        public void EnsureWorkspace()
+        public void EnsureWorkspace(int bridgePort)
         {
             Directory.CreateDirectory(WorkspaceDir);
             Directory.CreateDirectory(IpcDir);
@@ -133,17 +135,16 @@ namespace ArcGISClaude
             if (!File.Exists(ClaudeMdPath) && File.Exists(claudeTemplate))
                 File.Copy(claudeTemplate, ClaudeMdPath);
 
-            // Always (re)generate .mcp.json so the absolute paths track the
-            // current install location and Python interpreter.
-            WriteMcpConfig();
+            // Always (re)generate .mcp.json so the absolute paths and the bridge's
+            // loopback port track the current install / session.
+            WriteMcpConfig(bridgePort);
         }
 
         /// <summary>
-        /// Writes .mcp.json registering the zero-dependency stdio MCP bridge.
-        /// The HTTP "arcgis_live" server is a later enhancement and is omitted
-        /// from the MVP config.
+        /// Writes .mcp.json registering the zero-dependency stdio MCP server. The server
+        /// reaches the in-process bridge over the loopback port passed in the env.
         /// </summary>
-        public void WriteMcpConfig()
+        public void WriteMcpConfig(int bridgePort)
         {
             var config = new JObject
             {
@@ -153,14 +154,14 @@ namespace ArcGISClaude
                     {
                         ["command"] = ProPythonExe,
                         ["args"] = new JArray { BridgeMcpScript },
-                        ["env"] = new JObject { ["ARCGIS_CLAUDE_IPC"] = IpcDir }
+                        ["env"] = new JObject { ["ARCGIS_CLAUDE_PORT"] = bridgePort.ToString() }
                     }
                 }
             };
             var json = config.ToString();
 
-            // Paths only change on reinstall/upgrade, so avoid a disk write on every
-            // module load unless the content actually differs.
+            // Port changes each Pro session, so this rewrites on most loads; the
+            // content check still skips a redundant write when nothing changed.
             if (!File.Exists(McpConfigPath) || File.ReadAllText(McpConfigPath) != json)
                 File.WriteAllText(McpConfigPath, json);
         }

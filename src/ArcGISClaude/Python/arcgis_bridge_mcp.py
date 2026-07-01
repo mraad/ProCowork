@@ -3,26 +3,23 @@
 arcgis_bridge_mcp.py  --  a zero-dependency MCP server (stdio transport) that
 exposes the ArcGIS Pro live-session tools to the Claude Code engine.
 
-It does NOT import arcpy. It only forwards each tool call to `pro_bridge.py`
-(running inside ArcGIS Pro's in-process Python) via file IPC, so it can run on
-any Python 3 (stdlib only) -- including Pro's `arcgispro-py3`.
+It does NOT import arcpy. It forwards each tool call to the C# bridge running
+inside ArcGIS Pro over a loopback TCP socket, so it runs on any Python 3
+(stdlib only) -- including Pro's `arcgispro-py3`.
 
-Transport: newline-delimited JSON-RPC 2.0 over stdin/stdout (the MCP stdio
-contract). Anything that is not a protocol message goes to stderr.
+Transport (engine side): newline-delimited JSON-RPC 2.0 over stdin/stdout (the
+MCP stdio contract). Transport (bridge side): newline-delimited JSON over a
+127.0.0.1 socket. Anything that is not a protocol message goes to stderr.
 """
 
 import os
 import sys
 import json
-import time
 import uuid
+import socket
 
-# Fixed IPC folder under the user profile (NOT %TEMP%) so the daemon, this MCP
-# server, and the C# add-in all resolve the SAME path. ARCGIS_CLAUDE_IPC (set by
-# the add-in's .mcp.json) wins; the fallback matches it.
-IPC_DIR = os.environ.get("ARCGIS_CLAUDE_IPC") or os.path.join(
-    os.path.expanduser("~"), ".arcgis_claude")
-ALIVE = os.path.join(IPC_DIR, "bridge.alive")
+# The add-in binds an ephemeral loopback port and passes it in via .mcp.json env.
+BRIDGE_PORT = int(os.environ.get("ARCGIS_CLAUDE_PORT") or 0)
 
 SERVER_NAME = "arcgis_bridge"
 SERVER_VERSION = "0.1.0"
@@ -41,52 +38,78 @@ def _log(msg):
     sys.stderr.flush()
 
 
-def _bridge_alive():
+# One cached connection reused across calls: the C# bridge serves a single client
+# serially, and MCP requests here are already serial (one stdin reader), so no lock
+# is needed. Reconnect transparently if it drops.
+_sock = None
+_sock_file = None
+
+
+def _connect():
+    """Return a live socket to the bridge, or None if it isn't reachable."""
+    global _sock, _sock_file
+    if _sock is not None:
+        return _sock
+    if not BRIDGE_PORT:
+        return None
     try:
-        return os.path.exists(ALIVE) and (time.time() - os.path.getmtime(ALIVE)) < 5.0
+        s = socket.create_connection(("127.0.0.1", BRIDGE_PORT), timeout=5.0)
     except Exception:
-        return False
+        return None
+    _sock = s
+    _sock_file = s.makefile("r", encoding="utf-8", newline="\n")
+    return _sock
+
+
+def _reset():
+    global _sock, _sock_file
+    for c in (_sock_file, _sock):
+        try:
+            if c is not None:
+                c.close()
+        except Exception:
+            pass
+    _sock = None
+    _sock_file = None
 
 
 def _call_bridge(op, args, timeout=CALL_TIMEOUT):
-    """Write a command file, wait for the matching result file. Returns dict."""
-    if not _bridge_alive():
-        return {"ok": False, "error": _NOT_RUNNING_MSG, "data": None}
+    """Send one command over the loopback socket, wait for the reply. Returns dict."""
+    payload = (json.dumps({"id": uuid.uuid4().hex, "op": op, "args": args or {}}) + "\n").encode("utf-8")
 
-    cid = uuid.uuid4().hex
-    cmd_final = os.path.join(IPC_DIR, "cmd_%s.json" % cid)
-    cmd_tmp = cmd_final + ".tmp"
-    res_path = os.path.join(IPC_DIR, "res_%s.json" % cid)
-
-    try:
-        os.makedirs(IPC_DIR, exist_ok=True)
-        with open(cmd_tmp, "w", encoding="utf-8") as f:
-            json.dump({"id": cid, "op": op, "args": args or {}}, f)
-        os.replace(cmd_tmp, cmd_final)  # atomic handoff; bridge ignores *.tmp
-    except Exception as ex:
-        return {"ok": False, "error": "failed to submit command: %s" % ex, "data": None}
-
-    deadline = time.time() + timeout
-    # Poll fast at first so quick reads/edits return almost immediately, then back
-    # off to 50 ms so a long geoprocessing call doesn't spin the CPU.
-    interval = 0.005
-    while time.time() < deadline:
-        if os.path.exists(res_path):
-            try:
-                with open(res_path, "r", encoding="utf-8") as f:
-                    res = json.load(f)
-                os.remove(res_path)
-                return res
-            except Exception:
-                time.sleep(0.02)  # half-written; retry shortly
-                continue
-        if not _bridge_alive():
+    # Send with one reconnect — a cached socket may have gone stale between calls.
+    # Only the SEND is retried; once bytes are on the wire we must NOT resend, or a
+    # mutating op would run twice.
+    for attempt in (1, 2):
+        s = _connect()
+        if s is None:
             return {"ok": False, "error": _NOT_RUNNING_MSG, "data": None}
-        time.sleep(interval)
-        if interval < 0.05:
-            interval = min(0.05, interval * 1.5)
-    return {"ok": False, "error": "bridge timed out after %ss for op '%s'" % (timeout, op),
-            "data": None}
+        try:
+            s.settimeout(timeout)
+            s.sendall(payload)
+            break
+        except Exception:
+            _reset()
+            if attempt == 2:
+                return {"ok": False, "error": _NOT_RUNNING_MSG, "data": None}
+
+    # Wait for the reply. A timeout or drop here is terminal — do NOT resend.
+    reader = _sock_file
+    if reader is None:
+        return {"ok": False, "error": _NOT_RUNNING_MSG, "data": None}
+    try:
+        reply = reader.readline()
+    except Exception as ex:
+        _reset()
+        return {"ok": False, "error": "bridge read failed: %s" % ex, "data": None}
+    if reply == "":
+        _reset()  # connection closed before a reply -> bridge went down
+        return {"ok": False, "error": _NOT_RUNNING_MSG, "data": None}
+    try:
+        return json.loads(reply)
+    except Exception as ex:
+        _reset()
+        return {"ok": False, "error": "bad reply from bridge: %s" % ex, "data": None}
 
 
 # --------------------------------------------------------------------------- #
@@ -285,7 +308,7 @@ def _handle(message):
 
 
 def main():
-    _log("starting; IPC=%s" % IPC_DIR)
+    _log("starting; bridge port=%s" % BRIDGE_PORT)
     while True:
         line = sys.stdin.readline()
         if line == "":
