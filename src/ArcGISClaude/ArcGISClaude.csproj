@@ -26,6 +26,15 @@
     <Version>0.1.0</Version>
     <Company>mraad23</Company>
     <Product>Claude in ArcGIS Pro</Product>
+
+    <!-- .NET (Core) libraries do NOT copy PackageReference runtime assemblies to
+         the output folder by default; they are listed in deps.json and resolved
+         from the NuGet cache at runtime. A Pro add-in is loaded from its deployed
+         folder with no such resolution, so Markdig.dll must sit next to the
+         add-in DLL. This forces NuGet runtime assemblies to be copied local.
+         The Pro assemblies + Newtonsoft use ExcludeAssets=runtime, so they stay
+         OUT of the copy-local set (Pro provides them) — only Markdig is copied. -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
   <ItemGroup>
@@ -43,6 +52,10 @@
     </PackageReference>
 
     <!-- DPAPI (ProtectedData) is provided by the net10.0-windows framework. -->
+
+    <!-- Markdown parsing for the chat panel. Pro does not ship this, so it's a
+         normal (copy-local) reference, unlike the ExcludeAssets packages above. -->
+    <PackageReference Include="Markdig" Version="1.3.2" />
   </ItemGroup>
 
   <ItemGroup>

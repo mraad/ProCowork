@@ -129,11 +129,15 @@ namespace ArcGISClaude
             Directory.CreateDirectory(WorkspaceDir);
             Directory.CreateDirectory(IpcDir);
 
-            // Seed CLAUDE.md from the shipped template the first time only, so
-            // user edits to their workspace copy are preserved across upgrades.
+            // The shipped template is authoritative: re-seed CLAUDE.md whenever the
+            // workspace copy differs, so template fixes reach existing installs.
+            // (Customizations belong in the repo template, not the workspace copy —
+            // edits made directly to the workspace copy are overwritten here.)
             var claudeTemplate = Path.Combine(AddinDir, "Workspace", "CLAUDE.md");
-            if (!File.Exists(ClaudeMdPath) && File.Exists(claudeTemplate))
-                File.Copy(claudeTemplate, ClaudeMdPath);
+            if (File.Exists(claudeTemplate) &&
+                (!File.Exists(ClaudeMdPath) ||
+                 File.ReadAllText(claudeTemplate) != File.ReadAllText(ClaudeMdPath)))
+                File.Copy(claudeTemplate, ClaudeMdPath, overwrite: true);
 
             // Always (re)generate .mcp.json so the absolute paths and the bridge's
             // loopback port track the current install / session.
