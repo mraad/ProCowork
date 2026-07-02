@@ -11,10 +11,11 @@ There is no test suite. This is a Windows/ArcGIS Pro SDK project — it does not
 - **Must use full-framework MSBuild, not `dotnet build`.** `dotnet build` compiles but cannot run the Esri `.esriAddinX` packaging task (it uses `CodeTaskFactory`, unsupported by .NET-Core MSBuild), so no add-in is produced. Always **Release, x64**.
 - Requires: ArcGIS Pro SDK for .NET, Visual Studio 2022+, .NET 10 SDK, with `dotnet` on PATH (the SDK resolver needs it).
 - Build in VS (Release|x64) — Esri targets produce `src\ArcGISClaude\bin\x64\Release\ArcGISClaude.esriAddinX`, auto-register it with Pro, and the `DeployAddinToProFolder` target copies it to `Documents\ArcGIS\AddIns\ArcGISPro\` (handles OneDrive/Parallels Documents redirection).
-- Command line:
+- Command line (note: full-framework MSBuild rejects `dotnet`-style `-c` — use
+  `-p:Configuration=`; `-restore` picks up new PackageReferences):
   ```powershell
   & "C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\amd64\MSBuild.exe" `
-    .\src\ArcGISClaude\ArcGISClaude.csproj -t:Rebuild -c Release -p:Platform=x64
+    .\src\ArcGISClaude\ArcGISClaude.csproj -restore -t:Rebuild -p:Configuration=Release -p:Platform=x64
   ```
 - Quick sanity check for the two Python files (no ArcPy needed):
   ```bash
@@ -26,6 +27,8 @@ There is no test suite. This is a Windows/ArcGIS Pro SDK project — it does not
 
 ### Dependency rule
 All ArcGIS Pro assemblies and Newtonsoft.Json (pinned to Pro's `13.0.3`) use `<ExcludeAssets>runtime</ExcludeAssets>` — Pro provides them at runtime; shipping our own copies causes assembly-load/binding conflicts. Keep this on any new PackageReference that Pro already supplies.
+
+The flip side, for packages Pro does **not** ship (e.g. Markdig): the csproj sets `CopyLocalLockFileAssemblies=true` because .NET-SDK class libraries don't copy NuGet runtime assemblies to the output by default (they're resolved from the NuGet cache via `deps.json`) — but Pro loads the add-in from its deployed folder, where no such resolution exists. Without it the build "succeeds" and the add-in crashes at runtime. When adding such a package, verify its DLL lands inside the `.esriAddinX` (`Install/<name>.dll`).
 
 ## Architecture: three processes, one loopback bridge
 
@@ -60,7 +63,11 @@ Data flow of one live-project tool call:
 - Auth secrets are stored DPAPI-encrypted (`Options/AuthSettingsStore`).
 
 ### Rendering (`UI/`)
-Engine emits Markdown → `MarkdownToHtml` converts to a themed HTML subset → `HtmlPresenter` renders it in WPF. Tool-call cards (generated code + results) are toggled by `ShowToolOutputs`.
+Engine emits Markdown → `MarkdownToHtml` (Markdig: pipe tables, autolinks, strikethrough — deliberately *not* `UseAdvancedExtensions()`, so it never emits tags the presenter can't render) → `HtmlPresenter` renders the HTML subset as themed native WPF (headings, lists incl. nested, tables with shaded header row, blockquote, hr, links, code). Two hard-won invariants:
+- `MarkdownToHtml.Convert` first **unwraps ` ```markdown `/` ```md ` fences** — the engine sometimes wraps its answer (tables especially) in one, which would otherwise render as a raw-pipe code block. Real code fences pass through.
+- `HtmlPresenter` must tolerate malformed/half-streamed HTML (it re-renders on every streaming update), and any tag Markdig can emit needs a parser case — if you add a Markdig extension, extend the presenter to match.
+
+Tool-call cards (generated code + results) are toggled by `ShowToolOutputs`.
 
 ## Filesystem locations (resolved in `Module1.AppPaths`)
 - **Workspace** (engine cwd): `Documents\ArcGIS\ClaudeWorkspace\` — holds the seeded `CLAUDE.md` and the generated `.mcp.json`. Uses `MyDocuments` (not `%USERPROFILE%\Documents`) so redirected Documents (OneDrive/Parallels) resolves.
@@ -68,7 +75,7 @@ Engine emits Markdown → `MarkdownToHtml` converts to a themed HTML subset → 
 
 ## Two different CLAUDE.md files — don't confuse them
 - **This file** (`/CLAUDE.md`) — guidance for developing this repo.
-- **`src/ArcGISClaude/Workspace/CLAUDE.md`** — a **shipped runtime artifact**: it is seeded into the user's workspace on first run and is the system-prompt-level instructions for the *embedded* Claude that drives the live map (how to use the `arcgis_bridge` tools, ArcPy recipes, safety rules). Edit it to change the embedded assistant's behavior, not to document the build.
+- **`src/ArcGISClaude/Workspace/CLAUDE.md`** — a **shipped runtime artifact**: the system-prompt-level instructions for the *embedded* Claude that drives the live map (how to use the `arcgis_bridge` tools, ArcPy recipes, safety rules, output formatting). Edit it to change the embedded assistant's behavior, not to document the build. The template is **authoritative**: `Module1.EnsureWorkspace` re-seeds the workspace copy whenever it differs, so edits made directly to `Documents\ArcGIS\ClaudeWorkspace\CLAUDE.md` are overwritten on the next Pro start — customize here, in the repo.
 
 ## Conventions
 - C# in `src/ArcGISClaude/`, grouped by concern: `Engine/`, `Bridge/`, `UI/`, `Options/`, `Python/`, `Workspace/`. `Nullable`/`ImplicitUsings` are **disabled**; explicit `using`s, `internal sealed` classes, doc-comments explaining *why*.
