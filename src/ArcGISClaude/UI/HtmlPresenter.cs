@@ -17,9 +17,10 @@ namespace ArcGISClaude.UI
     /// panel's themed foreground, so it reads correctly in dark and light mode — no
     /// embedded browser, no white box.
     ///
-    /// It parses the subset the engine is instructed to emit: headings (h1-h6),
-    /// paragraphs (p), line breaks (br), bold (b/strong), italics (i/em), inline code
-    /// (code), code blocks (pre), lists (ul/ol/li), links (a), and tables
+    /// It parses the HTML subset Markdig emits from the engine's Markdown: headings
+    /// (h1-h6), paragraphs (p), line breaks (br/hr), bold (b/strong), italics
+    /// (i/em), strikethrough (del/s), inline code (code), code blocks (pre), lists
+    /// (ul/ol/li, including nesting), blockquotes, links (a), and tables
     /// (table/tr/th/td). The tokenizer is deliberately tolerant: malformed or
     /// half-streamed HTML (unclosed tags) degrades gracefully instead of throwing,
     /// because <see cref="Html"/> is re-rendered on every streaming update.
@@ -39,7 +40,13 @@ namespace ArcGISClaude.UI
         // Inline-level tags accumulate into a TextBlock's Inlines; block-level tags
         // open a new element in the vertical stack.
         private static readonly HashSet<string> BlockTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        { "h1","h2","h3","h4","h5","h6","p","pre","ul","ol","li","table","thead","tbody","tr","td","th","div" };
+        { "h1","h2","h3","h4","h5","h6","p","pre","ul","ol","li","table","thead","tbody","tr","td","th","div","blockquote","hr" };
+
+        // Tags whose open/close markers are skipped (content flows straight into
+        // the surrounding run) rather than ending it — Markdig wraps "loose" list
+        // item text in <p>, which would otherwise look like a block boundary.
+        private static readonly HashSet<string> ListItemTransparentTags =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "p" };
 
         private static readonly Regex TagRx = new Regex(
             @"<(?<close>/?)(?<name>[a-zA-Z][a-zA-Z0-9]*)(?<attrs>[^>]*?)/?>",
@@ -140,6 +147,14 @@ namespace ArcGISClaude.UI
                             i++;
                             ParseTable(toks, ref i, panel);
                             continue;
+                        case "blockquote":
+                            i++;
+                            panel.Children.Add(MakeBlockquote(toks, ref i));
+                            continue;
+                        case "hr":
+                            i++;
+                            panel.Children.Add(MakeHr());
+                            continue;
                         case "br":
                             i++; continue; // a bare block-level break is just a gap
                         default:
@@ -159,7 +174,7 @@ namespace ArcGISClaude.UI
         // --------------------------------------------------------------------- //
         //  inline-level walk
         // --------------------------------------------------------------------- //
-        private List<Inline> CollectInlines(List<Tok> toks, ref int i, string stopTag)
+        private List<Inline> CollectInlines(List<Tok> toks, ref int i, string stopTag, HashSet<string> transparent = null)
         {
             var result = new List<Inline>();
             while (i < toks.Count)
@@ -174,6 +189,8 @@ namespace ArcGISClaude.UI
 
                 if (tok.IsTag)
                 {
+                    if (transparent != null && transparent.Contains(tok.Name)) { i++; continue; }
+
                     // A block-level open tag ends this inline run — leave it for the
                     // block parser (don't consume it).
                     if (BlockTags.Contains(tok.Name)) break;
@@ -189,6 +206,10 @@ namespace ArcGISClaude.UI
                         case "i":
                         case "em":
                             AddSpan(result, new Italic(), CollectInlines(toks, ref i, name));
+                            break;
+                        case "del":
+                        case "s":
+                            AddSpan(result, new Span { TextDecorations = TextDecorations.Strikethrough }, CollectInlines(toks, ref i, name));
                             break;
                         case "code":
                             var code = new Run(CollectText(toks, ref i, "code")) { FontFamily = new FontFamily("Consolas") };
@@ -270,12 +291,46 @@ namespace ArcGISClaude.UI
                 {
                     i++;
                     var prefix = ordered ? (n++) + ".  " : "•  ";
-                    panel.Children.Add(MakeText(CollectInlines(toks, ref i, "li"), 0, FontWeights.Normal, 14, prefix));
+                    panel.Children.Add(ParseListItem(toks, ref i, prefix));
                     continue;
                 }
                 if (tok.IsTag && BlockTags.Contains(tok.Name)) return; // another block → list ended
                 i++; // whitespace / stray inline between items
             }
+        }
+
+        /// <summary>
+        /// Parse one &lt;li&gt;'s body: an inline text line, plus an optional nested
+        /// &lt;ul&gt;/&lt;ol&gt; rendered indented beneath it. Markdig wraps "loose" list
+        /// item text in &lt;p&gt; — <see cref="ListItemTransparentTags"/> makes that
+        /// transparent instead of ending the line early.
+        /// </summary>
+        private FrameworkElement ParseListItem(List<Tok> toks, ref int i, string prefix)
+        {
+            var itemPanel = new StackPanel();
+            while (true)
+            {
+                var inlines = CollectInlines(toks, ref i, "li", ListItemTransparentTags);
+                if (inlines.Count > 0 || prefix != null)
+                {
+                    itemPanel.Children.Add(MakeText(inlines, 0, FontWeights.Normal, 14, prefix));
+                    prefix = null;
+                }
+
+                if (i < toks.Count && toks[i].IsTag && !toks[i].IsClose &&
+                    (toks[i].Name == "ul" || toks[i].Name == "ol"))
+                {
+                    var nestedName = toks[i].Name;
+                    i++;
+                    var nestedPanel = new StackPanel { Margin = new Thickness(18, 0, 0, 0) };
+                    ParseList(toks, ref i, nestedPanel, nestedName);
+                    itemPanel.Children.Add(nestedPanel);
+                    continue; // there may be more content after the nested list
+                }
+
+                break; // </li> was consumed by CollectInlines (or we hit EOF)
+            }
+            return itemPanel;
         }
 
         private void ParseTable(List<Tok> toks, ref int i, StackPanel panel)
@@ -363,6 +418,7 @@ namespace ArcGISClaude.UI
 
                     var cell = new Border { Child = tb, BorderThickness = new Thickness(0, 0, 1, 1) };
                     cell.SetResourceReference(Border.BorderBrushProperty, "Esri_BorderBrush");
+                    if (r == 0) cell.SetResourceReference(Border.BackgroundProperty, "Esri_BackgroundPressedBrush");
                     Grid.SetRow(cell, r);
                     Grid.SetColumn(cell, c);
                     grid.Children.Add(cell);
@@ -377,6 +433,28 @@ namespace ArcGISClaude.UI
             };
             outer.SetResourceReference(Border.BorderBrushProperty, "Esri_BorderBrush");
             return outer;
+        }
+
+        private FrameworkElement MakeBlockquote(List<Tok> toks, ref int i)
+        {
+            var inner = new StackPanel();
+            ParseBlocks(toks, ref i, inner, "blockquote");
+            var border = new Border
+            {
+                Child = inner,
+                BorderThickness = new Thickness(3, 0, 0, 0),
+                Padding = new Thickness(10, 2, 0, 2),
+                Margin = new Thickness(0, 3, 0, 3),
+            };
+            border.SetResourceReference(Border.BorderBrushProperty, "Esri_BorderBrush");
+            return border;
+        }
+
+        private FrameworkElement MakeHr()
+        {
+            var rule = new Border { Height = 1, Margin = new Thickness(0, 8, 0, 8) };
+            rule.SetResourceReference(Border.BackgroundProperty, "Esri_BorderBrush");
+            return rule;
         }
 
         private FrameworkElement MakeCodeBlock(string code)

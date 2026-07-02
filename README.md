@@ -92,9 +92,10 @@ Command-line build (note: must use **full-framework MSBuild**, not `dotnet build
 ```powershell
 # dotnet build COMPILES but cannot run the Esri packaging task (it uses CodeTaskFactory,
 # unsupported by the .NET-Core MSBuild), so it won't produce the .esriAddinX.
+# Note: full MSBuild rejects dotnet-style -c; use -p:Configuration=.
 $msb = "C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\amd64\MSBuild.exe"
 $env:PATH = "$env:ProgramFiles\dotnet;$env:PATH"   # SDK resolver needs dotnet on PATH
-& $msb .\src\ArcGISClaude\ArcGISClaude.csproj -t:Rebuild -c Release -p:Platform=x64
+& $msb .\src\ArcGISClaude\ArcGISClaude.csproj -restore -t:Rebuild -p:Configuration=Release -p:Platform=x64
 ```
 
 ---
@@ -181,21 +182,23 @@ src/ArcGISClaude/
   UI/                         ChatDockPane (View/VM), item view models, templates
   Options/                    AuthOptionsPage (View/VM), AuthSettingsStore (DPAPI)
   Python/                     arcgis_bridge_mcp.py (stdlib MCP server), RunScript.pyt (per-call ArcPy executor)
-  Workspace/CLAUDE.md         "Claude's own file" (seeded to the user workspace)
+  Workspace/CLAUDE.md         "Claude's own file" — the embedded assistant's instructions
+                              (authoritative; re-seeded to the user workspace when it changes)
   Images/                     ribbon icons (placeholders — replace with real art)
 ```
 
-Runtime workspace (engine cwd, seeded on first run):
-`%USERPROFILE%\Documents\ArcGIS\ClaudeWorkspace\` — holds `CLAUDE.md` and the generated
-`.mcp.json`. The bridge's request/result handoff files live under
-`%USERPROFILE%\.arcgis_claude\` (alongside `bridge.log`).
+Runtime workspace (engine cwd): `%USERPROFILE%\Documents\ArcGIS\ClaudeWorkspace\` — holds
+`CLAUDE.md` (re-seeded from the shipped template whenever the template changes; edit the
+repo copy, not this one) and the generated `.mcp.json`. The bridge's request/result handoff
+files live under `%USERPROFILE%\.arcgis_claude\` (alongside `bridge.log`).
 
 ---
 
 ## Status
 
-MVP. Implemented: add-in shell, headless engine + native rendering, subscription auth, the
-persistent **C# execution bridge** (loopback MCP transport, .NET fast-path reads + a
-per-call ArcPy tool for writes — no long-lived Python daemon), the `run_python_current`
-centerpiece plus curated tools, and the options page (auth + model dropdown). Not yet:
-token-level streaming and the optional approval gate.
+MVP. Implemented: add-in shell, headless engine + native Markdown rendering (Markdig →
+themed WPF: headings, lists, links, code blocks, and real tables — matching Pro's dark and
+light themes), subscription auth, the persistent **C# execution bridge** (loopback MCP
+transport, .NET fast-path reads + a per-call ArcPy tool for writes — no long-lived Python
+daemon), the `run_python_current` centerpiece plus curated tools, and the options page
+(auth + model dropdown). Not yet: token-level streaming and the optional approval gate.
