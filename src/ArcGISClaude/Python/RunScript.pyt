@@ -139,14 +139,16 @@ def op_search_cursor(args):
     src = _source(args["layer"], args.get("map"))
     fields = args["fields"]
     limit = args.get("limit")
+    n = None if limit is None else int(limit)
     rows = []
+    truncated = False
     with arcpy.da.SearchCursor(src, fields, args.get("where")) as cur:
         for i, r in enumerate(cur):
-            if limit is not None and i >= int(limit):
+            if n is not None and i >= n:
+                truncated = True  # this row is beyond the limit -> more data exists
                 break
             rows.append([_jsonable(v) for v in r])
-    return {"fields": fields, "rows": rows,
-            "truncated": limit is not None and len(rows) >= int(limit)}
+    return {"fields": fields, "rows": rows, "truncated": truncated}
 
 
 def op_add_field(args):

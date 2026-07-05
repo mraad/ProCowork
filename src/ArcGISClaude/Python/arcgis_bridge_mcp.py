@@ -18,13 +18,23 @@ import json
 import uuid
 import socket
 
-# The add-in binds an ephemeral loopback port and passes it in via .mcp.json env.
+# The add-in binds an ephemeral loopback port and passes it (plus a per-session
+# auth token) in via .mcp.json env. The token must be the first line of every
+# TCP connection to the bridge.
 BRIDGE_PORT = int(os.environ.get("ARCGIS_CLAUDE_PORT") or 0)
+BRIDGE_TOKEN = os.environ.get("ARCGIS_CLAUDE_TOKEN") or ""
 
 SERVER_NAME = "arcgis_bridge"
 SERVER_VERSION = "0.1.0"
 DEFAULT_PROTOCOL = "2025-06-18"
+SUPPORTED_PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")  # newest first
 CALL_TIMEOUT = 300.0   # seconds; covers long geoprocessing / code runs
+
+# Ops safe to resend after a transparent reconnect: re-running them cannot
+# corrupt data (select/zoom only touch idempotent UI state). Everything else
+# fails fast on a mid-send drop -- the bytes may already have executed once.
+_READ_ONLY_OPS = {"ping", "list_layers", "get_field_list", "describe_layer",
+                  "feature_count", "select_by_attribute", "zoom_to_layer"}
 
 _NOT_RUNNING_MSG = (
     "The ArcGIS Pro live-project bridge isn't responding. Make sure ArcGIS Pro is "
@@ -56,6 +66,18 @@ def _connect():
         s = socket.create_connection(("127.0.0.1", BRIDGE_PORT), timeout=5.0)
     except Exception:
         return None
+    # Auth handshake: token as the first line of the connection. No reply is read
+    # on success -- the first request pipelines right behind it. On mismatch the
+    # bridge writes one {"ok":false,"error":"unauthorized..."} line and closes,
+    # which is what the pending readline() in _call_bridge then returns.
+    try:
+        s.sendall((BRIDGE_TOKEN + "\n").encode("utf-8"))
+    except Exception:
+        try:
+            s.close()
+        except Exception:
+            pass
+        return None
     _sock = s
     _sock_file = s.makefile("r", encoding="utf-8", newline="\n")
     return _sock
@@ -77,9 +99,10 @@ def _call_bridge(op, args, timeout=CALL_TIMEOUT):
     """Send one command over the loopback socket, wait for the reply. Returns dict."""
     payload = (json.dumps({"id": uuid.uuid4().hex, "op": op, "args": args or {}}) + "\n").encode("utf-8")
 
-    # Send with one reconnect — a cached socket may have gone stale between calls.
-    # Only the SEND is retried; once bytes are on the wire we must NOT resend, or a
-    # mutating op would run twice.
+    # Send with one reconnect for READ-ONLY ops — a cached socket may have gone
+    # stale between calls. Mutating ops fail fast instead: sendall can raise AFTER
+    # the bytes reached the bridge (e.g. reset right after the line was read), so
+    # resending could run the op twice.
     for attempt in (1, 2):
         s = _connect()
         if s is None:
@@ -90,6 +113,13 @@ def _call_bridge(op, args, timeout=CALL_TIMEOUT):
             break
         except Exception:
             _reset()
+            if op not in _READ_ONLY_OPS:
+                return {"ok": False,
+                        "error": ("connection to the ArcGIS bridge dropped while sending "
+                                  "'%s'. The command may or may not have executed -- verify "
+                                  "the current state (e.g. list_layers / get_field_list / "
+                                  "feature_count) before retrying." % op),
+                        "data": None}
             if attempt == 2:
                 return {"ok": False, "error": _NOT_RUNNING_MSG, "data": None}
 
@@ -288,7 +318,11 @@ def _handle(message):
     is_request = req_id is not None
 
     if method == "initialize":
-        proto = params.get("protocolVersion", DEFAULT_PROTOCOL)
+        # Per the MCP spec: echo the client's version only if we actually support
+        # it; otherwise answer with our latest supported version.
+        proto = params.get("protocolVersion")
+        if proto not in SUPPORTED_PROTOCOLS:
+            proto = DEFAULT_PROTOCOL
         _result(req_id, {
             "protocolVersion": proto,
             "capabilities": {"tools": {"listChanged": False}},
@@ -308,7 +342,12 @@ def _handle(message):
 
 
 def main():
+    # Windows text-mode stdout emits \r\n, which pollutes MCP newline framing.
+    sys.stdout.reconfigure(newline="\n")
     _log("starting; bridge port=%s" % BRIDGE_PORT)
+    # ponytail: single-threaded stdin loop -- while a bridge call is in flight,
+    # notifications/cancelled (or anything else) queues until it returns. Upgrade
+    # path: read stdin on a separate thread and _reset() the bridge socket on cancel.
     while True:
         line = sys.stdin.readline()
         if line == "":

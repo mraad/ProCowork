@@ -40,13 +40,18 @@ namespace ArcGISClaude
             Bridge = new BridgeService(Paths);
             Bridge.Start();
 
-            Paths.EnsureWorkspace(Bridge.Port);
+            Paths.EnsureWorkspace(Bridge.Port, Bridge.Token);
 
             return true;
         }
 
         protected override void Uninitialize()
         {
+            // Kill the chat pane's claude engine (and with it the MCP python child)
+            // FIRST, then the bridge — otherwise the bridge is torn down under a
+            // still-live client. The pane VM cannot observe Pro shutdown itself
+            // (the SDK has no DockPane dispose hook), so it is reached from here.
+            try { ChatDockPaneViewModel.ShutdownInstance(); } catch { }
             // Stops the listener + serve loop; the dropped socket tells the MCP
             // server the bridge is down the moment Pro shuts down.
             try { Bridge?.Dispose(); } catch { }
@@ -124,7 +129,7 @@ namespace ArcGISClaude
             return "python"; // last resort; the MCP server only needs the stdlib
         }
 
-        public void EnsureWorkspace(int bridgePort)
+        public void EnsureWorkspace(int bridgePort, string bridgeToken)
         {
             Directory.CreateDirectory(WorkspaceDir);
             Directory.CreateDirectory(IpcDir);
@@ -140,15 +145,16 @@ namespace ArcGISClaude
                 File.Copy(claudeTemplate, ClaudeMdPath, overwrite: true);
 
             // Always (re)generate .mcp.json so the absolute paths and the bridge's
-            // loopback port track the current install / session.
-            WriteMcpConfig(bridgePort);
+            // loopback port + auth token track the current install / session.
+            WriteMcpConfig(bridgePort, bridgeToken);
         }
 
         /// <summary>
         /// Writes .mcp.json registering the zero-dependency stdio MCP server. The server
-        /// reaches the in-process bridge over the loopback port passed in the env.
+        /// reaches the in-process bridge over the loopback port passed in the env, and
+        /// authenticates each connection with the per-session token passed alongside.
         /// </summary>
-        public void WriteMcpConfig(int bridgePort)
+        public void WriteMcpConfig(int bridgePort, string bridgeToken)
         {
             var config = new JObject
             {
@@ -158,14 +164,18 @@ namespace ArcGISClaude
                     {
                         ["command"] = ProPythonExe,
                         ["args"] = new JArray { BridgeMcpScript },
-                        ["env"] = new JObject { ["ARCGIS_CLAUDE_PORT"] = bridgePort.ToString() }
+                        ["env"] = new JObject
+                        {
+                            ["ARCGIS_CLAUDE_PORT"] = bridgePort.ToString(),
+                            ["ARCGIS_CLAUDE_TOKEN"] = bridgeToken
+                        }
                     }
                 }
             };
             var json = config.ToString();
 
-            // Port changes each Pro session, so this rewrites on most loads; the
-            // content check still skips a redundant write when nothing changed.
+            // Port and token change each Pro session, so this rewrites on most loads;
+            // the content check still skips a redundant write when nothing changed.
             if (!File.Exists(McpConfigPath) || File.ReadAllText(McpConfigPath) != json)
                 File.WriteAllText(McpConfigPath, json);
         }
