@@ -52,6 +52,10 @@ namespace ArcGISClaude.Engine
                 CreateNoWindow = true,
                 StandardOutputEncoding = Encoding.UTF8,
                 StandardErrorEncoding = Encoding.UTF8,
+                // BOM-free UTF-8: the default stdin encoding is the console code
+                // page, which mangles non-ASCII user text; a BOM would corrupt the
+                // first stream-json line.
+                StandardInputEncoding = new UTF8Encoding(false),
             };
 
             bool isCmd = exe.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase)
@@ -160,23 +164,44 @@ namespace ArcGISClaude.Engine
             return found;
         }
 
+        /// <summary>
+        /// User-initiated stop: close stdin (EOF ends the session) and give the
+        /// process a short grace period off-thread before killing its tree. The
+        /// wait must not run on the caller (UI) thread — it would freeze the panel
+        /// for up to the full grace period.
+        /// </summary>
         public void Stop()
         {
             try { _stdin?.Close(); } catch { }      // EOF on stdin ends the session
+            var proc = _proc;
+            if (proc == null) return;
+            _ = Task.Run(() =>
+            {
+                // Broad catch: the process may exit on its own, already be dead, or
+                // be disposed by a later EnsureEngine respawn while we wait — all
+                // benign outcomes for a stop request.
+                try
+                {
+                    if (!proc.WaitForExit(1500))
+                        proc.Kill(true);
+                }
+                catch { }
+            });
+        }
+
+        /// <summary>
+        /// Teardown (respawn or Pro shutdown): kill the whole child tree immediately
+        /// — no grace period, so the claude + MCP-python subtree cannot outlive Pro.
+        /// </summary>
+        public void Dispose()
+        {
+            try { _stdin?.Close(); } catch { }
             try
             {
                 if (_proc != null && !_proc.HasExited)
-                {
-                    if (!_proc.WaitForExit(1500))
-                        _proc.Kill(true);
-                }
+                    _proc.Kill(true);
             }
             catch { }
-        }
-
-        public void Dispose()
-        {
-            Stop();
             try { _proc?.Dispose(); } catch { }
         }
     }

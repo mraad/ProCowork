@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -15,7 +16,8 @@ namespace ArcGISClaude.Bridge
     /// there is nothing to be torn down and go stale.
     ///
     /// It serves the MCP server over a loopback TCP socket: the server connects to
-    /// <c>127.0.0.1:<see cref="Port"/></c> and exchanges newline-delimited JSON
+    /// <c>127.0.0.1:<see cref="Port"/></c>, sends <see cref="Token"/> as its first
+    /// line, then exchanges newline-delimited JSON
     /// (<c>{id,op,args}</c> → <c>{ok,error,data,id}</c>). Commands are handled one at a
     /// time (serial — no geoprocessing re-entrancy) and dispatched to the .NET read path
     /// (<see cref="AppStateOps"/>) or a fresh ArcPy tool (<see cref="ScriptRunner"/>).
@@ -33,6 +35,14 @@ namespace ArcGISClaude.Bridge
         /// <summary>Loopback port the MCP server connects to; 0 until <see cref="Start"/>.</summary>
         public int Port { get; private set; }
 
+        /// <summary>
+        /// Per-session shared secret. Any local process can reach a loopback port,
+        /// and this bridge executes arbitrary Python — so every connection must
+        /// present this token as its first line. Handed to the MCP server via
+        /// ARCGIS_CLAUDE_TOKEN in the generated .mcp.json (same channel as the port).
+        /// </summary>
+        public string Token { get; private set; }
+
         public BridgeService(AppPaths paths)
         {
             _ipcDir = paths.IpcDir;
@@ -45,6 +55,8 @@ namespace ArcGISClaude.Bridge
             try { Directory.CreateDirectory(_ipcDir); } catch { }
             ClearStale();
 
+            Token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+
             _listener = new TcpListener(IPAddress.Loopback, 0); // OS picks a free port
             _listener.Start();
             Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
@@ -55,32 +67,70 @@ namespace ArcGISClaude.Bridge
         // ponytail: one MCP client (one chat session) is served at a time — its requests
         // are synchronous, so serial dispatch preserves the no-GP-re-entrancy guarantee.
         // For concurrent chat panes, serve each client on its own task behind a dispatch lock.
+        //
+        // New-connection-wins: a half-open socket (hard-killed MCP process, no FIN)
+        // would park ServeAsync in ReadLineAsync forever and wedge this loop for the
+        // rest of the Pro session. Exactly one MCP client exists per session, so a
+        // new connection means the old one is dead: close it (faults its pending
+        // read), then AWAIT the old serve task before serving the new client — that
+        // await is what preserves serial dispatch / no GP re-entrancy. Do not remove it.
         private async Task AcceptLoopAsync(CancellationToken ct)
         {
+            TcpClient current = null;
+            Task serve = Task.CompletedTask;
             while (!ct.IsCancellationRequested)
             {
-                try
-                {
-                    using (var client = await _listener.AcceptTcpClientAsync().ConfigureAwait(false))
-                        await ServeAsync(client, ct).ConfigureAwait(false);
-                }
+                TcpClient next;
+                try { next = await _listener.AcceptTcpClientAsync().ConfigureAwait(false); }
                 catch (Exception ex)
                 {
                     if (ct.IsCancellationRequested) break; // Stop() unblocked the accept — shutting down
                     Log("accept loop error: " + ex);
+                    continue;
                 }
+                try { current?.Close(); } catch { }
+                try { await serve.ConfigureAwait(false); } catch { }
+                current = next;
+                serve = ServeAsync(next, ct);
             }
+            try { current?.Close(); } catch { }
+            try { await serve.ConfigureAwait(false); } catch { }
         }
 
-        /// <summary>Serve one connection: read command lines, dispatch serially, write replies.</summary>
+        /// <summary>
+        /// Serve one connection (and own its disposal): check the auth handshake,
+        /// then read command lines, dispatch serially, write replies.
+        /// </summary>
         private async Task ServeAsync(TcpClient client, CancellationToken ct)
         {
             client.NoDelay = true;
             var utf8 = new UTF8Encoding(false); // no BOM — the first line must be clean JSON
+            using (client)
             using (var stream = client.GetStream())
             using (var reader = new StreamReader(stream, utf8))
             using (var writer = new StreamWriter(stream, utf8) { AutoFlush = true })
             {
+                // Auth handshake: the first line must be the per-session token. On
+                // mismatch, reply once (so the MCP server surfaces a real cause
+                // instead of "bridge down") and drop the connection. FixedTimeEquals
+                // is cheap insurance; the threat is other local processes.
+                string hello;
+                try { hello = await reader.ReadLineAsync().ConfigureAwait(false); }
+                catch { return; }
+                if (hello == null) return;
+                if (!CryptographicOperations.FixedTimeEquals(
+                        Encoding.UTF8.GetBytes(hello), Encoding.UTF8.GetBytes(Token)))
+                {
+                    try
+                    {
+                        await writer.WriteLineAsync(
+                            Err("unauthorized: bridge token mismatch")
+                                .ToString(Newtonsoft.Json.Formatting.None)).ConfigureAwait(false);
+                    }
+                    catch { }
+                    return;
+                }
+
                 while (!ct.IsCancellationRequested)
                 {
                     string line;
@@ -144,13 +194,12 @@ namespace ArcGISClaude.Bridge
         }
 
         /// <summary>
-        /// Remove leftovers from a previous, hard-killed session (including stale
-        /// req_/out_ from the ArcPy tool handoff). Nothing is waiting on these at
-        /// module load, so we drop them rather than replay.
+        /// Remove stale req_/out_ handoff files from a previous, hard-killed session.
+        /// Nothing is waiting on these at module load, so we drop them rather than replay.
         /// </summary>
         private void ClearStale()
         {
-            foreach (var pattern in new[] { "cmd_*.json", "res_*.json", "req_*.json", "out_*.json" })
+            foreach (var pattern in new[] { "req_*.json", "out_*.json" })
             {
                 try { foreach (var f in Directory.GetFiles(_ipcDir, pattern)) TryDelete(f); }
                 catch { }

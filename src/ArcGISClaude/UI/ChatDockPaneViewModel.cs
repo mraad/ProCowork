@@ -25,6 +25,12 @@ namespace ArcGISClaude
         private readonly Dictionary<string, ToolCallVm> _toolsById = new Dictionary<string, ToolCallVm>();
         private readonly Queue<string> _stderrTail = new Queue<string>();
 
+        // Pro-shutdown hook target: DAML instantiates exactly one VM per session,
+        // and the Pro SDK offers no DockPane dispose hook, so Module1.Uninitialize
+        // reaches the engine through this field. (DockPaneManager.Find would
+        // *instantiate* a never-opened pane during shutdown just to no-op.)
+        private static ChatDockPaneViewModel _instance;
+
         private ClaudeCodeProcess _engine;
 
         // Claude Code emits system/init at the start of every turn, so the connect
@@ -32,6 +38,11 @@ namespace ArcGISClaude
         // distinguishes the first connect from a genuine respawn (true reconnect).
         private bool _sessionAnnounced;
         private bool _hasConnectedBefore;
+
+        // Set by OnStop so OnEngineExited can tell a user-requested kill from a
+        // crash and skip the error notice. Both sites run on the UI thread (command
+        // handler / BeginInvoke'd body), so no locking is needed.
+        private bool _stopRequested;
 
         public ObservableCollection<ChatItemVm> Items { get; } = new ObservableCollection<ChatItemVm>();
 
@@ -74,6 +85,27 @@ namespace ArcGISClaude
             SendCommand = new RelayCommand(() => _ = OnSendAsync(),
                                            () => !IsTurnActive && !string.IsNullOrWhiteSpace(Input));
             StopCommand = new RelayCommand(OnStop, () => _engine != null && _engine.IsRunning);
+            _instance = this;
+        }
+
+        /// <summary>
+        /// Pro-shutdown hook, called by <see cref="Module1.Uninitialize"/>: without
+        /// it the claude child (and its MCP python subtree) outlives Pro — Windows
+        /// does not kill children when the parent exits.
+        /// </summary>
+        internal static void ShutdownInstance() => _instance?.ShutdownEngine();
+
+        private void ShutdownEngine()
+        {
+            var e = _engine;
+            if (e == null) return;
+            _engine = null;
+            // Detach-before-dispose, same as EnsureEngine. Detaching Exited is
+            // deliberate here: the UI is going away, no exit notice is wanted.
+            e.EventReceived -= OnEngineEvent;
+            e.StdErrReceived -= OnEngineStdErr;
+            e.Exited -= OnEngineExited;
+            try { e.Dispose(); } catch { }
         }
 
         internal static void Show()
@@ -104,6 +136,8 @@ namespace ArcGISClaude
             _engine.Exited += OnEngineExited;
             _engine.Start(EngineSettings.Current);
             _sessionAnnounced = false;  // new session -> announce once on its first init
+            _stopRequested = false;     // a stale stop must not mute this session's exit
+            StopCommand.RaiseCanExecuteChanged();  // _engine changed outside IsTurnActive
             // The ArcPy bridge is owned by Module1 and runs automatically for the
             // whole Pro session — nothing to start here.
         }
@@ -131,6 +165,7 @@ namespace ArcGISClaude
 
         private void OnStop()
         {
+            _stopRequested = true;  // the coming exit is expected — no error notice
             _engine?.Stop();
             IsTurnActive = false;
         }
@@ -230,6 +265,7 @@ namespace ArcGISClaude
         {
             IsTurnActive = false;
             StatusText = "Engine stopped.";
+            if (_stopRequested) { _stopRequested = false; return; }  // user asked for this exit
             if (code == 0) return;
 
             string tail;

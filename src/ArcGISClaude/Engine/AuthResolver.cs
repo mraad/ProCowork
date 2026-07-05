@@ -31,6 +31,9 @@ namespace ArcGISClaude.Engine
 
                 case AuthMode.ApiKey:
                     Remove("ANTHROPIC_AUTH_TOKEN");
+                    // An ambient OAuth token would override the chosen API key the
+                    // same way an ambient API key overrides subscription mode.
+                    Remove("CLAUDE_CODE_OAUTH_TOKEN");
                     if (!string.IsNullOrEmpty(s.ApiKey))
                         psi.Environment["ANTHROPIC_API_KEY"] = s.ApiKey;
                     break;

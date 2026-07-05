@@ -68,13 +68,14 @@ They are conveniences, not limits — anything they don't cover, write with
 `run_python_current`. **Always inspect the schema (`list_layers` / `get_field_list`)
 before writing code that references layer or field names.**
 
+Keep results small: always pass a `limit` to `search_cursor`, and in
+`run_python_*` cap what you assign to `result` (e.g. top-N rows, a summary) —
+oversized replies waste the context you need for the rest of the task.
+
 ## Environment
 - ArcGIS Pro 3.6/3.7. The active map and layers are live in the app.
 - Pro's Python (for disk-only `Bash` work): `arcgispro-py3`, typically
   `%ProgramFiles%\ArcGIS\Pro\bin\Python\envs\arcgispro-py3\python.exe`.
-- To act on a layer's data, call **`list_layers`** and take its `source` path — that path
-  is all path-based arcpy needs. Don't rely on `m.listLayers("Parcels")` (it fails if `m`
-  is `None`); use it only for genuine map/view work, after checking `m` isn't `None`.
 
 ## ArcPy quick-recipes
 ```python
@@ -100,10 +101,9 @@ else:
 ```
 
 ## Live vs disk
-- `aprx`/`m` and the curated tools see the LIVE map — including unsaved selections and
-  layer state. Selections, symbology, and layout live in the app session (use `aprx`/`m`).
-- `arcpy.da` cursors and GP tools edit the data **source on disk** (use the path); those
-  edits show up in the map. Use `aprx`/`m` for navigation/selection; paths for data edits.
+`aprx`/`m` and the curated tools see the LIVE map — including unsaved selections and
+layer state. `arcpy.da` cursors and GP tools edit the data **source on disk**, and those
+edits still show up live in the map. (Which to use for what: see *Two kinds of work*.)
 
 ## Safety (code runs automatically — be careful)
 Generated code executes immediately on the user's open project, and some edits are
@@ -113,9 +113,8 @@ irreversible. Therefore:
   ```python
   import os
   ws = os.path.dirname(parcels)        # the .gdb the feature class lives in
-  edit = arcpy.da.Editor(ws); edit.startEditing(False, True); edit.startOperation()
-  # ... cursor edits ...
-  edit.stopOperation(); edit.stopEditing(True)
+  with arcpy.da.Editor(ws):            # undo enabled; aborts cleanly if the code raises
+      pass  # ... cursor edits ...
   ```
 - **Back up before destructive operations** (e.g. `arcpy.management.CopyFeatures` /
   `Export Features`) when deleting or overwriting.
