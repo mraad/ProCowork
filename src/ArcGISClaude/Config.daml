@@ -5,7 +5,7 @@
         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
         xsi:schemaLocation="http://schemas.esri.com/DADF/Registry Registry.xsd">
 
-  <AddInInfo id="{8E5C8B9A-2F4D-4C9E-9A1B-7C2E0D6F1A02}" version="0.1.0" desktopVersion="3.6">
+  <AddInInfo id="{8E5C8B9A-2F4D-4C9E-9A1B-7C2E0D6F1A02}" version="0.1.2" desktopVersion="3.6">
     <Name>Claude in ArcGIS Pro</Name>
     <Description>A native chat panel that lets the Claude Code engine drive ArcGIS Pro through Python, ArcPy, and the live map.</Description>
     <Image>Images\AddinDesktop32.png</Image>
