@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    ArcGIS Pro add-in: "Claude in ArcGIS Pro".
+    ArcGIS Pro add-in: "GeoCowork in ArcGIS Pro".
     Target ArcGIS Pro 3.7 (SDK on .NET 10). For Pro 3.6 use net8.0-windows and
     Esri.ArcGISPro.Extensions30 3.6.*; for 3.5 and earlier, net6.0-windows.
 
@@ -25,7 +25,7 @@
     <RootNamespace>ArcGISClaude</RootNamespace>
     <Version>0.1.2</Version>
     <Company>mraad23</Company>
-    <Product>Claude in ArcGIS Pro</Product>
+    <Product>GeoCowork in ArcGIS Pro</Product>
 
     <!-- .NET (Core) libraries do NOT copy PackageReference runtime assemblies to
          the output folder by default; they are listed in deps.json and resolved

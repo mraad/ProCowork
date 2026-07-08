@@ -6,7 +6,7 @@
         xsi:schemaLocation="http://schemas.esri.com/DADF/Registry Registry.xsd">
 
   <AddInInfo id="{8E5C8B9A-2F4D-4C9E-9A1B-7C2E0D6F1A02}" version="0.1.2" desktopVersion="3.6">
-    <Name>Claude in ArcGIS Pro</Name>
+    <Name>GeoCowork in ArcGIS Pro</Name>
     <Description>A native chat panel that lets the Claude Code engine drive ArcGIS Pro through Python, ArcPy, and the live map.</Description>
     <Image>Images\AddinDesktop32.png</Image>
     <Author>mraad23</Author>
@@ -19,16 +19,16 @@
     <insertModule id="ArcGISClaude_Module"
                   className="Module1"
                   autoLoad="true"
-                  caption="Claude Module">
+                  caption="GeoCowork Module">
 
       <tabs>
-        <tab id="ArcGISClaude_Tab" caption="Claude" keytip="C">
+        <tab id="ArcGISClaude_Tab" caption="GeoCowork" keytip="C">
           <group refID="ArcGISClaude_Group" />
         </tab>
       </tabs>
 
       <groups>
-        <group id="ArcGISClaude_Group" caption="Claude" keytip="A" appearsOnAddInTab="false">
+        <group id="ArcGISClaude_Group" caption="GeoCowork" keytip="A" appearsOnAddInTab="false">
           <button refID="ArcGISClaude_ShowChat" size="large" />
         </group>
       </groups>
@@ -41,15 +41,15 @@
                 keytip="CH"
                 smallImage="Images\Chat16.png"
                 largeImage="Images\Chat32.png">
-          <tooltip heading="Claude Chat">
-            Open the Claude assistant panel. The live-project bridge runs automatically.<disabledText />
+          <tooltip heading="GeoCowork Chat">
+            Open the GeoCowork assistant panel. The live-project bridge runs automatically.<disabledText />
           </tooltip>
         </button>
       </controls>
 
       <dockPanes>
         <dockPane id="ArcGISClaude_ChatDockPane"
-                  caption="Claude"
+                  caption="GeoCowork"
                   className="ChatDockPaneViewModel"
                   dock="group"
                   dockWith="esri_core_contentsDockPane">
@@ -63,7 +63,7 @@
   <propertySheets>
     <updateSheet refID="esri_core_optionsPropertySheet">
       <insertPage id="ArcGISClaude_AuthOptionsPage"
-                  caption="Claude"
+                  caption="GeoCowork"
                   className="AuthOptionsViewModel"
                   group="Application">
         <content className="AuthOptionsPage" />
