@@ -47,13 +47,13 @@ namespace ArcGISClaude
 
         protected override void Uninitialize()
         {
-            // Kill the chat pane's claude engine (and with it the MCP python child)
-            // FIRST, then the bridge — otherwise the bridge is torn down under a
-            // still-live client. The pane VM cannot observe Pro shutdown itself
-            // (the SDK has no DockPane dispose hook), so it is reached from here.
+            // Kill the chat pane's claude engine FIRST, then the bridge — otherwise
+            // the bridge is torn down under a still-live client mid-call. The pane VM
+            // cannot observe Pro shutdown itself (the SDK has no DockPane dispose
+            // hook), so it is reached from here.
             try { ChatDockPaneViewModel.ShutdownInstance(); } catch { }
-            // Stops the listener + serve loop; the dropped socket tells the MCP
-            // server the bridge is down the moment Pro shuts down.
+            // Stops the listener; the engine's next request gets connection-refused
+            // the moment Pro shuts down.
             try { Bridge?.Dispose(); } catch { }
             base.Uninitialize();
         }
@@ -70,7 +70,7 @@ namespace ArcGISClaude
         /// <summary>Folder the add-in DLL + shipped Python live in.</summary>
         public string AddinDir { get; private set; }
 
-        /// <summary>Shipped Python bridge + MCP server + toolbox.</summary>
+        /// <summary>Shipped Python toolbox (the ArcPy write path).</summary>
         public string PythonDir { get; private set; }
 
         /// <summary>Working directory the Claude Code engine runs in.</summary>
@@ -79,12 +79,8 @@ namespace ArcGISClaude
         /// <summary>Spool for the ArcPy tool handoff (req_/out_), under %USERPROFILE%\.arcgis_claude.</summary>
         public string IpcDir { get; private set; }
 
-        /// <summary>Path to ArcGIS Pro's bundled Python (arcgispro-py3).</summary>
-        public string ProPythonExe { get; private set; }
-
         public string McpConfigPath => Path.Combine(WorkspaceDir, ".mcp.json");
         public string ClaudeMdPath => Path.Combine(WorkspaceDir, "CLAUDE.md");
-        public string BridgeMcpScript => Path.Combine(PythonDir, "arcgis_bridge_mcp.py");
         public string RunScriptToolbox => Path.Combine(PythonDir, "RunScript.pyt");
 
         public static AppPaths Create()
@@ -97,7 +93,7 @@ namespace ArcGISClaude
                 // Fixed, deterministic IPC folder under the user profile — NOT the
                 // temp dir. ArcGIS Pro sets a per-session TMP (…\ArcGISProTempNNNN\),
                 // and .NET/Python resolve it differently, so a temp-based path makes
-                // the bridge and the MCP server look in different folders.
+                // the C# bridge and the ArcPy tool look in different folders.
                 IpcDir = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                     ".arcgis_claude"),
@@ -105,28 +101,9 @@ namespace ArcGISClaude
                 // folder — e.g. OneDrive or a Parallels Mac home — resolves correctly.
                 WorkspaceDir = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                    "ArcGIS", "ClaudeWorkspace"),
-                ProPythonExe = ResolveProPython()
+                    "ArcGIS", "ClaudeWorkspace")
             };
             return p;
-        }
-
-        /// <summary>
-        /// Locates arcgispro-py3 python.exe. Falls back to "python" on PATH.
-        /// </summary>
-        private static string ResolveProPython()
-        {
-            // The CIM exposes the install dir via env var in most installs.
-            var candidates = new[]
-            {
-                Environment.GetEnvironmentVariable("ARCGISPRO_PYTHON"),
-                Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-                    "ArcGIS", "Pro", "bin", "Python", "envs", "arcgispro-py3", "python.exe"),
-            };
-            foreach (var c in candidates)
-                if (!string.IsNullOrEmpty(c) && File.Exists(c)) return c;
-            return "python"; // last resort; the MCP server only needs the stdlib
         }
 
         public void EnsureWorkspace(int bridgePort, string bridgeToken)
@@ -144,15 +121,17 @@ namespace ArcGISClaude
                  File.ReadAllText(claudeTemplate) != File.ReadAllText(ClaudeMdPath)))
                 File.Copy(claudeTemplate, ClaudeMdPath, overwrite: true);
 
-            // Always (re)generate .mcp.json so the absolute paths and the bridge's
-            // loopback port + auth token track the current install / session.
+            // Always (re)generate .mcp.json so the bridge's loopback port + auth
+            // token track the current session.
             WriteMcpConfig(bridgePort, bridgeToken);
         }
 
         /// <summary>
-        /// Writes .mcp.json registering the zero-dependency stdio MCP server. The server
-        /// reaches the in-process bridge over the loopback port passed in the env, and
-        /// authenticates each connection with the per-session token passed alongside.
+        /// Writes .mcp.json pointing the engine at the in-process bridge's MCP
+        /// streamable-HTTP endpoint, authenticated per-request with the session
+        /// token. The 320 s per-request timeout deliberately exceeds ScriptRunner's
+        /// 290 s bound, so a slow tool surfaces the bridge's clean timeout message
+        /// instead of a transport abort.
         /// </summary>
         public void WriteMcpConfig(int bridgePort, string bridgeToken)
         {
@@ -162,13 +141,13 @@ namespace ArcGISClaude
                 {
                     ["arcgis_bridge"] = new JObject
                     {
-                        ["command"] = ProPythonExe,
-                        ["args"] = new JArray { BridgeMcpScript },
-                        ["env"] = new JObject
+                        ["type"] = "http",
+                        ["url"] = "http://127.0.0.1:" + bridgePort + "/mcp",
+                        ["headers"] = new JObject
                         {
-                            ["ARCGIS_CLAUDE_PORT"] = bridgePort.ToString(),
-                            ["ARCGIS_CLAUDE_TOKEN"] = bridgeToken
-                        }
+                            ["Authorization"] = "Bearer " + bridgeToken
+                        },
+                        ["timeout"] = 320000
                     }
                 }
             };

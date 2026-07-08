@@ -76,6 +76,13 @@ namespace ArcGISClaude.Engine
 
             AuthResolver.Apply(psi, settings);
 
+            // The engine aborts an MCP tool call after 5 idle minutes by default —
+            // only 10 s over the bridge's 290 s ScriptRunner bound, and a second
+            // call queued behind the bridge's serial-dispatch gate can wait ~290 s
+            // before its own 290 s run. 10 min clears both; the per-request 320 s
+            // timeout in .mcp.json still bounds each individual request.
+            psi.Environment["CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT"] = "600000";
+
             _proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
             _proc.Exited += (s, e) =>
             {
@@ -191,7 +198,7 @@ namespace ArcGISClaude.Engine
 
         /// <summary>
         /// Teardown (respawn or Pro shutdown): kill the whole child tree immediately
-        /// — no grace period, so the claude + MCP-python subtree cannot outlive Pro.
+        /// — no grace period, so the claude process tree cannot outlive Pro.
         /// </summary>
         public void Dispose()
         {

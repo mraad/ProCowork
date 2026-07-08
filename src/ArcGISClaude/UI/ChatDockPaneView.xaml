@@ -26,6 +26,36 @@
             <TextBlock Text="{Binding StatusText}" TextTrimming="CharacterEllipsis" Opacity="0.85" />
         </Border>
 
+        <!-- Work-in-progress indicator: a thin strip that pulses while a turn is
+             active. Opacity animation (not color) — the Esri theme brushes are
+             shared DynamicResource objects whose colors can't be animated, and an
+             opacity pulse follows both dark and light themes for free. -->
+        <Border DockPanel.Dock="Top" Height="3"
+                Background="{DynamicResource Esri_BackgroundSelectedBrush}">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Setter Property="Opacity" Value="0" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsTurnActive}" Value="True">
+                            <DataTrigger.EnterActions>
+                                <BeginStoryboard x:Name="Pulse">
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                         From="0.2" To="1.0" Duration="0:0:1.2"
+                                                         AutoReverse="True"
+                                                         RepeatBehavior="Forever" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </DataTrigger.EnterActions>
+                            <DataTrigger.ExitActions>
+                                <StopStoryboard BeginStoryboardName="Pulse" />
+                            </DataTrigger.ExitActions>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+        </Border>
+
         <!-- Input row -->
         <Border DockPanel.Dock="Bottom" Padding="6"
                 Background="{DynamicResource Esri_BackgroundPressedBrush}">

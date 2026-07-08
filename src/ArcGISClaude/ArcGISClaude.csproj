@@ -68,8 +68,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Python bridge + toolbox ship next to the assembly (Install\Python) so the
-         add-in can locate them at runtime via Assembly.Location. -->
+    <!-- The Python toolbox ships next to the assembly (Install\Python) so the
+         add-in can locate it at runtime via Assembly.Location. -->
     <Content Include="Python\**\*.*" Exclude="Python\**\__pycache__\**">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

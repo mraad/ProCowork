@@ -19,8 +19,8 @@ namespace ArcGISClaude.Bridge
     /// </summary>
     internal sealed class ScriptRunner
     {
-        // Below the MCP server's 300 s call timeout, so the engine sees a clean
-        // "timed out" rather than a hang.
+        // Below the 320 s per-request timeout in .mcp.json, so the engine sees a
+        // clean "timed out" rather than a transport abort.
         private static readonly TimeSpan CallTimeout = TimeSpan.FromSeconds(290);
 
         private readonly string _ipcDir;
@@ -37,7 +37,7 @@ namespace ArcGISClaude.Bridge
         /// <summary>
         /// Executes <paramref name="op"/> with <paramref name="args"/> via the tool and
         /// returns RunScript's <c>{ok, error, data}</c> object (already in the result
-        /// envelope shape the MCP server expects). Never throws — failures become a
+        /// envelope shape the bridge expects). Never throws — failures become a
         /// <c>{ok:false, error}</c> object.
         /// </summary>
         public async Task<JObject> RunAsync(string op, JObject args, CancellationToken ct)
