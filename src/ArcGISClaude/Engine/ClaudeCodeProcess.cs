@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using ArcGISClaude.Bridge;
 
 namespace ArcGISClaude.Engine
 {
@@ -76,12 +77,11 @@ namespace ArcGISClaude.Engine
 
             AuthResolver.Apply(psi, settings);
 
-            // The engine aborts an MCP tool call after 5 idle minutes by default —
-            // only 10 s over the bridge's 290 s ScriptRunner bound, and a second
-            // call queued behind the bridge's serial-dispatch gate can wait ~290 s
-            // before its own 290 s run. 10 min clears both; the per-request 320 s
-            // timeout in .mcp.json still bounds each individual request.
-            psi.Environment["CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT"] = "600000";
+            // The engine's default MCP idle abort (5 min) is too tight for a call
+            // queued behind the bridge's serial-dispatch gate — the ordering of the
+            // whole timeout ladder is defined once in BridgeTimeouts.
+            psi.Environment["CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT"] =
+                BridgeTimeouts.EngineIdleMs.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
             _proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
             _proc.Exited += (s, e) =>

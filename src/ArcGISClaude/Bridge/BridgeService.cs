@@ -60,9 +60,20 @@ namespace ArcGISClaude.Bridge
         /// </summary>
         public string Token { get; private set; }
 
-        private const string ProtocolDefault = "2025-06-18";
+        /// <summary>
+        /// MCP server identity. The name is also the mcpServers key in the generated
+        /// .mcp.json (see <see cref="AppPaths.WriteMcpConfig"/>), which namespaces the
+        /// engine-visible tool ids (mcp__arcgis_bridge__*) that the workspace CLAUDE.md
+        /// references — one constant so they cannot drift apart. The version reports
+        /// the add-in version (csproj &lt;Version&gt;) rather than a second literal.
+        /// </summary>
+        public const string ServerName = "arcgis_bridge";
+        private static readonly string ServerVersion =
+            typeof(BridgeService).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
+
         private static readonly string[] ProtocolsSupported =
             { "2025-06-18", "2025-03-26", "2024-11-05" }; // newest first
+        private static readonly string ProtocolDefault = ProtocolsSupported[0];
 
         public BridgeService(AppPaths paths)
         {
@@ -74,7 +85,7 @@ namespace ArcGISClaude.Bridge
         public void Start()
         {
             try { Directory.CreateDirectory(_ipcDir); } catch { }
-            ClearStale();
+            _runner.ClearStale();
 
             Token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
 
@@ -246,7 +257,7 @@ namespace ArcGISClaude.Bridge
                         {
                             ["protocolVersion"] = proto,
                             ["capabilities"] = new JObject { ["tools"] = new JObject { ["listChanged"] = false } },
-                            ["serverInfo"] = new JObject { ["name"] = "arcgis_bridge", ["version"] = "0.1.0" },
+                            ["serverInfo"] = new JObject { ["name"] = ServerName, ["version"] = ServerVersion },
                         });
                     }
                     case "tools/list":
@@ -274,11 +285,8 @@ namespace ArcGISClaude.Bridge
 
             JObject res;
             await _gate.WaitAsync().ConfigureAwait(false); // the serial-dispatch invariant
-            try
-            {
-                try { res = await DispatchAsync(name, args, _cts.Token).ConfigureAwait(false); }
-                catch (Exception ex) { res = Err(ex.GetType().Name + ": " + ex.Message); }
-            }
+            try { res = await DispatchAsync(name, args, _cts.Token).ConfigureAwait(false); }
+            catch (Exception ex) { res = Err(ex.GetType().Name + ": " + ex.Message); }
             finally { _gate.Release(); }
 
             // Shape the {ok,error,data} envelope into an MCP tool result. run_python_*
@@ -394,19 +402,6 @@ namespace ArcGISClaude.Bridge
         private static byte[] RpcError(JToken id, int code, string message)
             => Encoding.UTF8.GetBytes(JObjectRpcError(id, code, message).ToString(Newtonsoft.Json.Formatting.None));
 
-        /// <summary>
-        /// Remove stale req_/out_ handoff files from a previous, hard-killed session.
-        /// Nothing is waiting on these at module load, so we drop them rather than replay.
-        /// </summary>
-        private void ClearStale()
-        {
-            foreach (var pattern in new[] { "req_*.json", "out_*.json" })
-            {
-                try { foreach (var f in Directory.GetFiles(_ipcDir, pattern)) TryDelete(f); }
-                catch { }
-            }
-        }
-
         public void Dispose()
         {
             try { _cts.Cancel(); } catch { }
@@ -420,11 +415,6 @@ namespace ArcGISClaude.Bridge
 
         private static JObject Err(string message)
             => new JObject { ["ok"] = false, ["error"] = message, ["data"] = null };
-
-        private static void TryDelete(string path)
-        {
-            try { if (File.Exists(path)) File.Delete(path); } catch { }
-        }
 
         private void Log(string msg)
         {

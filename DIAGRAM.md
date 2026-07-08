@@ -9,7 +9,7 @@ runtime sequence of one live-project tool call.
 flowchart TB
     subgraph ProProcess["ArcGIS Pro process (in-process add-in)"]
         Module1["Module1<br/>(autoLoad, owns BridgeService)"]
-        DockPane["ChatDockPaneViewModel<br/>(owns ClaudeCodeProcess)"]
+        DockPane["ChatDockPaneViewModel<br/>(owns ClaudeCodeProcess;<br/>IsTurnActive → marquee progress bar)"]
         BridgeService["BridgeService<br/>MCP streamable-HTTP server<br/>loopback, ephemeral port, Bearer auth"]
         McpTools["McpTools<br/>(tool catalog, JSON literal)"]
         AppStateOps["AppStateOps<br/>.NET SDK, CIM thread"]
@@ -58,6 +58,7 @@ sequenceDiagram
     participant Map as Live ArcGIS Pro project
 
     User->>DockPane: chat message
+    Note over DockPane: IsTurnActive = true —\n marquee progress bar shows
     DockPane->>Engine: stream-json turn (stdin)
     Engine->>Bridge: POST /mcp tools/call\n (JSON-RPC, Bearer token)
     Note over Bridge: SemaphoreSlim gate —\n one tool call at a time
@@ -81,6 +82,7 @@ sequenceDiagram
     Engine-->>DockPane: assistant/tool-result events (stdout, stream-json)
     DockPane->>DockPane: HandleEvent -> MarkdownToHtml -> HtmlPresenter
     DockPane-->>User: rendered chat + tool-call card
+    Note over DockPane: result event — IsTurnActive = false,\n progress bar hides
 ```
 
 ## Notes
@@ -89,3 +91,4 @@ sequenceDiagram
 - The bridge is stateless: each request is one `POST /mcp` + one JSON response, no SSE stream, no session id. The engine's HTTP MCP client reconnects with backoff on its own.
 - The port is ephemeral (OS-chosen) and written with the Bearer token into `.mcp.json` every session.
 - `RunScript.pyt` runs as a **fresh** foreground GP tool per write call — no long-lived ArcPy daemon, avoiding the staleness of `arcpy.mp.ArcGISProject("CURRENT")`.
+- Work-in-progress: a thin indeterminate `ProgressBar` (marquee) under the status bar, bound to `IsTurnActive` — set on send, cleared on the `result` event, Stop, or engine exit.

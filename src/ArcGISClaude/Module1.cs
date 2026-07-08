@@ -129,9 +129,9 @@ namespace ArcGISClaude
         /// <summary>
         /// Writes .mcp.json pointing the engine at the in-process bridge's MCP
         /// streamable-HTTP endpoint, authenticated per-request with the session
-        /// token. The 320 s per-request timeout deliberately exceeds ScriptRunner's
-        /// 290 s bound, so a slow tool surfaces the bridge's clean timeout message
-        /// instead of a transport abort.
+        /// token. The per-request timeout deliberately exceeds ScriptRunner's GP
+        /// bound (see <see cref="BridgeTimeouts"/>), so a slow tool surfaces the
+        /// bridge's clean timeout message instead of a transport abort.
         /// </summary>
         public void WriteMcpConfig(int bridgePort, string bridgeToken)
         {
@@ -139,7 +139,7 @@ namespace ArcGISClaude
             {
                 ["mcpServers"] = new JObject
                 {
-                    ["arcgis_bridge"] = new JObject
+                    [BridgeService.ServerName] = new JObject
                     {
                         ["type"] = "http",
                         ["url"] = "http://127.0.0.1:" + bridgePort + "/mcp",
@@ -147,7 +147,7 @@ namespace ArcGISClaude
                         {
                             ["Authorization"] = "Bearer " + bridgeToken
                         },
-                        ["timeout"] = 320000
+                        ["timeout"] = BridgeTimeouts.McpRequestMs
                     }
                 }
             };

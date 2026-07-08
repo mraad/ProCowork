@@ -20,32 +20,25 @@ namespace ArcGISClaude.Bridge
     /// </summary>
     internal static class AppStateOps
     {
-        private static readonly HashSet<string> Ops = new HashSet<string>(StringComparer.Ordinal)
+        // One table is both the "is this a read op?" answer and the router, so a
+        // tool can't be routed here without a handler (or vice versa).
+        private static readonly Dictionary<string, Func<JObject, object>> Handlers =
+            new Dictionary<string, Func<JObject, object>>(StringComparer.Ordinal)
         {
-            "ping", "list_layers", "get_field_list", "describe_layer",
-            "feature_count", "select_by_attribute", "zoom_to_layer",
+            ["ping"] = _ => Ping(),
+            ["list_layers"] = ListLayers,
+            ["get_field_list"] = GetFieldList,
+            ["describe_layer"] = DescribeLayer,
+            ["feature_count"] = FeatureCount,
+            ["select_by_attribute"] = SelectByAttribute,
+            ["zoom_to_layer"] = ZoomToLayer,
         };
 
-        public static bool Handles(string op) => Ops.Contains(op);
+        public static bool Handles(string op) => Handlers.ContainsKey(op);
 
         /// <summary>Runs the op on the CIM thread and returns a JSON-serializable result.</summary>
         public static Task<object> DispatchAsync(string op, JObject args)
-            => QueuedTask.Run(() => Dispatch(op, args));
-
-        private static object Dispatch(string op, JObject args)
-        {
-            switch (op)
-            {
-                case "ping": return Ping();
-                case "list_layers": return ListLayers(args);
-                case "get_field_list": return GetFieldList(args);
-                case "describe_layer": return DescribeLayer(args);
-                case "feature_count": return FeatureCount(args);
-                case "select_by_attribute": return SelectByAttribute(args);
-                case "zoom_to_layer": return ZoomToLayer(args);
-                default: throw new InvalidOperationException("unhandled read op: " + op);
-            }
-        }
+            => QueuedTask.Run(() => Handlers[op](args));
 
         private static object Ping()
         {

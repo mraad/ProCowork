@@ -19,9 +19,9 @@ namespace ArcGISClaude.Bridge
     /// </summary>
     internal sealed class ScriptRunner
     {
-        // Below the 320 s per-request timeout in .mcp.json, so the engine sees a
-        // clean "timed out" rather than a transport abort.
-        private static readonly TimeSpan CallTimeout = TimeSpan.FromSeconds(290);
+        // Below the engine's per-request timeout so it sees a clean "timed out"
+        // rather than a transport abort — the ladder lives in BridgeTimeouts.
+        private static readonly TimeSpan CallTimeout = BridgeTimeouts.GpCall;
 
         private readonly string _ipcDir;
         private readonly string _toolbox;  // "<...>\RunScript.pyt"
@@ -100,6 +100,21 @@ namespace ArcGISClaude.Bridge
                 ct,
                 null,
                 GPExecuteToolFlags.GPThread);
+        }
+
+        /// <summary>
+        /// Remove stale req_/out_ handoff files from a previous, hard-killed session.
+        /// Lives here because this class owns the handoff-file naming (see
+        /// <see cref="RunAsync"/>). Nothing is waiting on these at module load, so
+        /// they are dropped rather than replayed.
+        /// </summary>
+        public void ClearStale()
+        {
+            foreach (var pattern in new[] { "req_*.json", "out_*.json" })
+            {
+                try { foreach (var f in Directory.GetFiles(_ipcDir, pattern)) TryDelete(f); }
+                catch { }
+            }
         }
 
         private static JObject Err(string message)
