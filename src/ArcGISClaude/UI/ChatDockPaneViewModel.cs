@@ -90,8 +90,8 @@ namespace ArcGISClaude
 
         /// <summary>
         /// Pro-shutdown hook, called by <see cref="Module1.Uninitialize"/>: without
-        /// it the claude child (and its MCP python subtree) outlives Pro — Windows
-        /// does not kill children when the parent exits.
+        /// it the claude child process tree outlives Pro — Windows does not kill
+        /// children when the parent exits.
         /// </summary>
         internal static void ShutdownInstance() => _instance?.ShutdownEngine();
 
