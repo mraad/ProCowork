@@ -67,7 +67,7 @@ Engine emits Markdown → `MarkdownToHtml` (Markdig: pipe tables, autolinks, str
 - `MarkdownToHtml.Convert` first **unwraps ` ```markdown `/` ```md ` fences** — the engine sometimes wraps its answer (tables especially) in one, which would otherwise render as a raw-pipe code block. Real code fences pass through.
 - `HtmlPresenter` must tolerate malformed/half-streamed HTML (it re-renders on every streaming update), and any tag Markdig can emit needs a parser case — if you add a Markdig extension, extend the presenter to match.
 
-Tool-call cards (generated code + results) are toggled by `ShowToolOutputs`. A thin strip under the status bar pulses while `IsTurnActive` (pure XAML in `ChatDockPaneView.xaml`; opacity animation, not color — the Esri theme brushes are shared `DynamicResource` objects whose colors can't be animated, and opacity follows both themes).
+Tool-call cards (generated code + results) are toggled by `ShowToolOutputs`. A thin indeterminate `ProgressBar` under the status bar shows while `IsTurnActive` (pure XAML in `ChatDockPaneView.xaml`; both `IsIndeterminate` and `Visibility` are bound so the marquee storyboard doesn't run while hidden, and its `Foreground` is an Esri theme brush so it follows both themes).
 
 ## Filesystem locations (resolved in `Module1.AppPaths`)
 - **Workspace** (engine cwd): `Documents\ArcGIS\ClaudeWorkspace\` — holds the seeded `CLAUDE.md` and the generated `.mcp.json`. Uses `MyDocuments` (not `%USERPROFILE%\Documents`) so redirected Documents (OneDrive/Parallels) resolves.

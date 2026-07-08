@@ -15,6 +15,7 @@
                     Source="pack://application:,,,/ArcGIS.Desktop.Framework;component/Themes/Default.xaml" />
                 <ResourceDictionary Source="/ArcGISClaude;component/UI/ChatItemTemplates.xaml" />
             </ResourceDictionary.MergedDictionaries>
+            <BooleanToVisibilityConverter x:Key="BoolToVis" />
         </ResourceDictionary>
     </UserControl.Resources>
 
@@ -26,35 +27,17 @@
             <TextBlock Text="{Binding StatusText}" TextTrimming="CharacterEllipsis" Opacity="0.85" />
         </Border>
 
-        <!-- Work-in-progress indicator: a thin strip that pulses while a turn is
-             active. Opacity animation (not color) — the Esri theme brushes are
-             shared DynamicResource objects whose colors can't be animated, and an
-             opacity pulse follows both dark and light themes for free. -->
-        <Border DockPanel.Dock="Top" Height="3"
-                Background="{DynamicResource Esri_BackgroundSelectedBrush}">
-            <Border.Style>
-                <Style TargetType="Border">
-                    <Setter Property="Opacity" Value="0" />
-                    <Style.Triggers>
-                        <DataTrigger Binding="{Binding IsTurnActive}" Value="True">
-                            <DataTrigger.EnterActions>
-                                <BeginStoryboard x:Name="Pulse">
-                                    <Storyboard>
-                                        <DoubleAnimation Storyboard.TargetProperty="Opacity"
-                                                         From="0.2" To="1.0" Duration="0:0:1.2"
-                                                         AutoReverse="True"
-                                                         RepeatBehavior="Forever" />
-                                    </Storyboard>
-                                </BeginStoryboard>
-                            </DataTrigger.EnterActions>
-                            <DataTrigger.ExitActions>
-                                <StopStoryboard BeginStoryboardName="Pulse" />
-                            </DataTrigger.ExitActions>
-                        </DataTrigger>
-                    </Style.Triggers>
-                </Style>
-            </Border.Style>
-        </Border>
+        <!-- Work-in-progress indicator: a thin indeterminate progress bar shown
+             only while a turn is active. Marquee motion is far more visible than
+             an opacity pulse. No local Style, so any implicit Esri ProgressBar
+             theme still applies; Foreground is a theme brush so it follows
+             dark/light. IsIndeterminate is bound (not constant) so the marquee
+             storyboard doesn't run while hidden. -->
+        <ProgressBar DockPanel.Dock="Top" Height="3" BorderThickness="0"
+                     Background="Transparent"
+                     Foreground="{DynamicResource Esri_BackgroundSelectedBrush}"
+                     IsIndeterminate="{Binding IsTurnActive}"
+                     Visibility="{Binding IsTurnActive, Converter={StaticResource BoolToVis}}" />
 
         <!-- Input row -->
         <Border DockPanel.Dock="Bottom" Padding="6"
