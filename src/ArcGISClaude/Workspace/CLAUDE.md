@@ -33,7 +33,7 @@ you (best-effort) and hands it in.
 ### Two kinds of work — pick the right one
 - **Data edits** (add/calculate fields, cursors, geoprocessing): operate on the layer's
   **data-source PATH**, never the layer name and never `aprx`/`m`. Get the path from
-  **`list_layers`** — each feature layer reports its on-disk `source`
+  **`list_layers`** — each feature layer and standalone table reports its on-disk `source`
   (e.g. `C:\data\city.gdb\Parcels`); row counts are omitted by default (pass
   `include_counts=true`, or use `feature_count`, when you need them).
   **Path-based arcpy needs no project at all**, so it is
@@ -68,7 +68,8 @@ They are conveniences, not limits — anything they don't cover, write with
 `run_python_current`. **Always inspect the schema (`list_layers` / `get_field_list`)
 before writing code that references layer or field names.**
 
-Keep results small: always pass a `limit` to `search_cursor`, and in
+Keep results small: `search_cursor` defaults to 10000 rows; pass an explicit lower or higher
+`limit` for the task. In
 `run_python_*` cap what you assign to `result` (e.g. top-N rows, a summary) —
 oversized replies waste the context you need for the rest of the task.
 

@@ -32,12 +32,19 @@ namespace ArcGISClaude.Engine
                     CreateNoWindow = true
                 };
                 using var p = Process.Start(psi);
-                var outp = p.StandardOutput.ReadToEnd();
-                p.WaitForExit(3000);
-                foreach (var l in outp.Split('\n'))
+                var output = p.StandardOutput.ReadToEndAsync();
+                if (!p.WaitForExit(3000))
                 {
-                    var t = l.Trim();
-                    if (t.Length > 0 && File.Exists(t)) return _cached = t;
+                    try { p.Kill(); } catch { }
+                }
+                else
+                {
+                    var outp = output.GetAwaiter().GetResult();
+                    foreach (var l in outp.Split('\n'))
+                    {
+                        var t = l.Trim();
+                        if (t.Length > 0 && File.Exists(t)) return _cached = t;
+                    }
                 }
             }
             catch { /* fall through */ }

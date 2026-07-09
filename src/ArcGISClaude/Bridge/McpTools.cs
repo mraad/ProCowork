@@ -21,7 +21,7 @@ namespace ArcGISClaude.Bridge
 
         private static HashSet<string> BuildNames()
         {
-            var names = new HashSet<string>();
+            var names = new HashSet<string>(System.StringComparer.Ordinal);
             foreach (var t in Tools) names.Add((string)t["name"]);
             return names;
         }
@@ -54,12 +54,12 @@ namespace ArcGISClaude.Bridge
   },
   {
     "name": "list_layers",
-    "description": "List layers in the active (or named) map of the CURRENT project, with type/visibility/geometry and each feature layer's on-disk source path. Feature counts are omitted by default (they can be slow on large sources); pass include_counts=true to include them, or use feature_count for one layer.",
+    "description": "List layers and standalone tables in the active (or named) map of the CURRENT project, with type/visibility/geometry and each feature layer/table's on-disk source path. Feature counts are omitted by default (they can be slow on large sources); pass include_counts=true to include them, or use feature_count for one layer/table.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "map": { "type": "string", "description": "Optional map name; defaults to the active map." },
-        "include_counts": { "type": "boolean", "description": "Include each feature layer's row count (slower). Default false." }
+        "include_counts": { "type": "boolean", "description": "Include each feature layer/table row count (slower). Default false." }
       },
       "additionalProperties": false
     }
@@ -70,7 +70,8 @@ namespace ArcGISClaude.Bridge
     "inputSchema": {
       "type": "object",
       "properties": {
-        "layer": { "type": "string" }
+        "layer": { "type": "string" },
+        "map": { "type": "string", "description": "Optional map name; defaults to the active map." }
       },
       "required": ["layer"],
       "additionalProperties": false
@@ -95,7 +96,8 @@ namespace ArcGISClaude.Bridge
     "inputSchema": {
       "type": "object",
       "properties": {
-        "layer": { "type": "string" }
+        "layer": { "type": "string" },
+        "map": { "type": "string", "description": "Optional map name; defaults to the active map." }
       },
       "required": ["layer"],
       "additionalProperties": false
@@ -109,8 +111,9 @@ namespace ArcGISClaude.Bridge
       "properties": {
         "layer": { "type": "string" },
         "fields": { "type": "array", "items": { "type": "string" }, "description": "Field names, e.g. ['OID@','POP']. Tokens like SHAPE@XY allowed." },
+        "map": { "type": "string", "description": "Optional map name; defaults to the active map when layer is a name." },
         "where": { "type": "string", "description": "Optional SQL where-clause." },
-        "limit": { "type": "integer", "description": "Optional max rows." }
+        "limit": { "type": "integer", "description": "Optional max rows; defaults to 10000." }
       },
       "required": ["layer", "fields"],
       "additionalProperties": false
@@ -151,6 +154,7 @@ namespace ArcGISClaude.Bridge
       "type": "object",
       "properties": {
         "layer": { "type": "string" },
+        "map": { "type": "string", "description": "Optional map name; defaults to the active map when layer is a name." },
         "field_name": { "type": "string" },
         "field_type": { "type": "string", "enum": ["TEXT", "FLOAT", "DOUBLE", "SHORT", "LONG", "DATE", "BLOB", "GUID"] },
         "field_length": { "type": "integer" },
@@ -167,6 +171,7 @@ namespace ArcGISClaude.Bridge
       "type": "object",
       "properties": {
         "layer": { "type": "string" },
+        "map": { "type": "string", "description": "Optional map name; defaults to the active map when layer is a name." },
         "field": { "type": "string" },
         "expression": { "type": "string" },
         "expression_type": { "type": "string", "enum": ["PYTHON3", "ARCADE", "SQL"] }
@@ -182,6 +187,7 @@ namespace ArcGISClaude.Bridge
       "type": "object",
       "properties": {
         "layer": { "type": "string" },
+        "map": { "type": "string", "description": "Optional map name; defaults to the active map when layer is a name." },
         "field": { "type": "string" },
         "value": {},
         "where": { "type": "string" }

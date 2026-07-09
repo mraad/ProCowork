@@ -220,12 +220,12 @@ namespace ArcGISClaude.UI
                             var url = MatchHref(tok.Attrs);
                             var link = new Hyperlink();
                             foreach (var inl in CollectInlines(toks, ref i, "a")) link.Inlines.Add(inl);
-                            if (!string.IsNullOrEmpty(url))
+                            if (TryCreateSafeUri(url, out var uri))
                             {
-                                try { link.NavigateUri = new Uri(url, UriKind.RelativeOrAbsolute); } catch { }
+                                link.NavigateUri = uri;
                                 link.RequestNavigate += (s, e) =>
                                 {
-                                    try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); } catch { }
+                                    try { Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true }); } catch { }
                                 };
                             }
                             result.Add(link);
@@ -270,6 +270,19 @@ namespace ArcGISClaude.UI
             if (string.IsNullOrEmpty(attrs)) return null;
             var m = HrefRx.Match(attrs);
             return m.Success ? m.Groups["u"].Value : null;
+        }
+
+        private static bool TryCreateSafeUri(string url, out Uri uri)
+        {
+            uri = null;
+            if (string.IsNullOrWhiteSpace(url)) return false;
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var candidate)) return false;
+            if (candidate.Scheme != Uri.UriSchemeHttp &&
+                candidate.Scheme != Uri.UriSchemeHttps &&
+                candidate.Scheme != Uri.UriSchemeMailto)
+                return false;
+            uri = candidate;
+            return true;
         }
 
         // --------------------------------------------------------------------- //
