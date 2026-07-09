@@ -83,16 +83,25 @@ namespace ArcGISClaude.Engine
             psi.Environment["CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT"] =
                 BridgeTimeouts.EngineIdleMs.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
-            _proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
-            _proc.Exited += (s, e) =>
+            var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
+            proc.Exited += (s, e) =>
             {
-                try { Exited?.Invoke(_proc?.ExitCode ?? -1); } catch { }
+                int code;
+                try { code = proc.ExitCode; }
+                catch { code = -1; }
+                try { Exited?.Invoke(code); } catch { }
             };
-            _proc.Start();
-            _stdin = _proc.StandardInput;
+            try { proc.Start(); }
+            catch
+            {
+                proc.Dispose();
+                throw;
+            }
+            _proc = proc;
+            _stdin = proc.StandardInput;
 
-            _ = Task.Run(ReadStdoutAsync);
-            _ = Task.Run(ReadStderrAsync);
+            _ = Task.Run(() => ReadStdoutAsync(proc));
+            _ = Task.Run(() => ReadStderrAsync(proc));
         }
 
         /// <summary>Send one user turn. The engine keeps the session across turns.</summary>
@@ -117,12 +126,12 @@ namespace ArcGISClaude.Engine
             await _stdin.FlushAsync().ConfigureAwait(false);
         }
 
-        private async Task ReadStdoutAsync()
+        private async Task ReadStdoutAsync(Process proc)
         {
             try
             {
                 string line;
-                while ((line = await _proc.StandardOutput.ReadLineAsync().ConfigureAwait(false)) != null)
+                while ((line = await proc.StandardOutput.ReadLineAsync().ConfigureAwait(false)) != null)
                 {
                     if (string.IsNullOrWhiteSpace(line)) continue;
                     JObject ev;
@@ -137,12 +146,12 @@ namespace ArcGISClaude.Engine
             }
         }
 
-        private async Task ReadStderrAsync()
+        private async Task ReadStderrAsync(Process proc)
         {
             try
             {
                 string line;
-                while ((line = await _proc.StandardError.ReadLineAsync().ConfigureAwait(false)) != null)
+                while ((line = await proc.StandardError.ReadLineAsync().ConfigureAwait(false)) != null)
                     StdErrReceived?.Invoke(line);
             }
             catch { /* shutting down */ }

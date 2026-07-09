@@ -32,6 +32,9 @@ _APRX = None
 _M = None
 
 
+DEFAULT_SEARCH_LIMIT = 10000
+
+
 # --------------------------------------------------------------------------- #
 #  CURRENT project (best-effort) + helpers
 # --------------------------------------------------------------------------- #
@@ -138,8 +141,10 @@ def op_run_python_file(args):
 def op_search_cursor(args):
     src = _source(args["layer"], args.get("map"))
     fields = args["fields"]
-    limit = args.get("limit")
+    limit = args.get("limit", DEFAULT_SEARCH_LIMIT)
     n = None if limit is None else int(limit)
+    if n is not None and n < 0:
+        raise ValueError("limit must be >= 0")
     rows = []
     truncated = False
     with arcpy.da.SearchCursor(src, fields, args.get("where")) as cur:

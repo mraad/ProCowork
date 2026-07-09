@@ -96,6 +96,25 @@ namespace ArcGISClaude.Bridge
                 else info["is_raster"] = layer is RasterLayer;
                 layers.Add(info);
             }
+            foreach (var tableView in map.GetStandaloneTablesAsFlattenedList())
+            {
+                var info = new Dictionary<string, object>
+                {
+                    ["name"] = tableView.Name,
+                    ["is_table"] = true,
+                    ["is_standalone_table"] = true,
+                };
+                try
+                {
+                    using (var table = tableView.GetTable())
+                    {
+                        info["source"] = DataSourcePath(table);
+                        if (includeCounts) info["count"] = table.GetCount();
+                    }
+                }
+                catch (Exception ex) { info["source_error"] = ex.Message; }
+                layers.Add(info);
+            }
             return layers;
         }
 
@@ -175,10 +194,17 @@ namespace ArcGISClaude.Bridge
 
         private static Map ResolveMap(string name)
         {
-            if (string.IsNullOrEmpty(name)) return MapView.Active?.Map;
-            return Project.Current?.GetItems<MapProjectItem>()
-                .FirstOrDefault(i => string.Equals(i.Name, name, StringComparison.OrdinalIgnoreCase))
-                ?.GetMap() ?? MapView.Active?.Map;
+            if (string.IsNullOrWhiteSpace(name)) return MapView.Active?.Map;
+
+            var project = Project.Current;
+            if (project == null)
+                throw new InvalidOperationException("No project is open; cannot find map '" + name + "'.");
+
+            var item = project.GetItems<MapProjectItem>()
+                .FirstOrDefault(i => string.Equals(i.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (item == null)
+                throw new InvalidOperationException("Map '" + name + "' was not found in the current project.");
+            return item.GetMap();
         }
 
         private static FeatureLayer FindFeatureLayer(JObject args)
@@ -189,7 +215,7 @@ namespace ArcGISClaude.Bridge
             var match = map.GetLayersAsFlattenedList().OfType<FeatureLayer>()
                 .FirstOrDefault(l => string.Equals(l.Name, name, StringComparison.OrdinalIgnoreCase));
             return match ?? throw new InvalidOperationException(
-                "Feature layer '" + name + "' not found in the active map.");
+                "Feature layer '" + name + "' not found in map '" + map.Name + "'.");
         }
 
         /// <summary>The underlying Table for the named feature layer or standalone table.</summary>
@@ -208,7 +234,7 @@ namespace ArcGISClaude.Bridge
             if (st != null) return st.GetTable();
 
             throw new InvalidOperationException(
-                "Layer or table '" + name + "' not found in the active map.");
+                "Layer or table '" + name + "' not found in map '" + map.Name + "'.");
         }
 
         /// <summary>

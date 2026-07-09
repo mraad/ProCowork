@@ -49,6 +49,9 @@ namespace ArcGISClaude.Bridge
         private TcpListener _listener;
         private Task _loop;
 
+        private const int MaxHeaderBytes = 16 * 1024;
+        private const int MaxBodyBytes = 4 * 1024 * 1024;
+
         /// <summary>Loopback port the engine connects to; 0 until <see cref="Start"/>.</summary>
         public int Port { get; private set; }
 
@@ -141,8 +144,9 @@ namespace ArcGISClaude.Bridge
                     int headerEnd;
                     while ((headerEnd = FindHeaderEnd(buffered)) < 0)
                     {
-                        if (buffered.Length > 16 * 1024) { WriteResponse(stream, 400, null, null); return; }
-                        int n = stream.Read(chunk, 0, chunk.Length);
+                        if (buffered.Length >= MaxHeaderBytes) { WriteResponse(stream, 400, null, null); return; }
+                        int toRead = (int)Math.Min(chunk.Length, MaxHeaderBytes - buffered.Length);
+                        int n = stream.Read(chunk, 0, toRead);
                         if (n <= 0) return; // client closed mid-header
                         buffered.Write(chunk, 0, n);
                     }
@@ -164,6 +168,7 @@ namespace ArcGISClaude.Bridge
                     // sends Content-Length for a string JSON body; chunked gets a 400.
                     string authHeader = null;
                     long contentLength = -1;
+                    bool sawContentLength = false;
                     for (int i = 1; i < lines.Length; i++)
                     {
                         int c = lines[i].IndexOf(':');
@@ -171,7 +176,15 @@ namespace ArcGISClaude.Bridge
                         var name = lines[i].Substring(0, c).Trim();
                         var value = lines[i].Substring(c + 1).Trim();
                         if (name.Equals("Authorization", StringComparison.OrdinalIgnoreCase)) authHeader = value;
-                        else if (name.Equals("Content-Length", StringComparison.OrdinalIgnoreCase)) long.TryParse(value, out contentLength);
+                        else if (name.Equals("Content-Length", StringComparison.OrdinalIgnoreCase))
+                        {
+                            sawContentLength = true;
+                            if (!long.TryParse(value, out contentLength))
+                            {
+                                WriteResponse(stream, 400, null, null);
+                                return;
+                            }
+                        }
                     }
 
                     // 405 is also the spec-legal answer to a GET probe for the optional
@@ -181,15 +194,20 @@ namespace ArcGISClaude.Bridge
 
                     if (!IsAuthorized(authHeader)) { WriteResponse(stream, 401, null, null); return; }
 
-                    if (contentLength < 0 || contentLength > 4 * 1024 * 1024) { WriteResponse(stream, 400, null, null); return; }
+                    if (!sawContentLength || contentLength < 0 || contentLength > MaxBodyBytes)
+                    {
+                        WriteResponse(stream, 400, null, null);
+                        return;
+                    }
 
                     // --- body: bytes already buffered past the header, then the rest ---
-                    var body = new byte[contentLength];
-                    int have = (int)Math.Min(buffered.Length - headerEnd, contentLength);
+                    int bodyLength = (int)contentLength;
+                    var body = new byte[bodyLength];
+                    int have = Math.Min((int)(buffered.Length - headerEnd), bodyLength);
                     Buffer.BlockCopy(raw, headerEnd, body, 0, have);
-                    while (have < contentLength)
+                    while (have < bodyLength)
                     {
-                        int n = stream.Read(body, have, (int)(contentLength - have));
+                        int n = stream.Read(body, have, bodyLength - have);
                         if (n <= 0) return; // client closed mid-body
                         have += n;
                     }

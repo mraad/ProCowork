@@ -126,8 +126,10 @@ namespace ArcGISClaude
                 _engine.StdErrReceived -= OnEngineStdErr;
                 _engine.Exited -= OnEngineExited;
                 _engine.Dispose();
-                _toolsById.Clear();
             }
+
+            _toolsById.Clear();
+            lock (_stderrTail) _stderrTail.Clear();
 
             var paths = Module1.Current.Paths;
             _engine = new ClaudeCodeProcess(paths.WorkspaceDir, paths.McpConfigPath);
