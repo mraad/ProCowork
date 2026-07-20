@@ -76,8 +76,8 @@ namespace ArcGISClaude
         /// <summary>Working directory the Claude Code engine runs in.</summary>
         public string WorkspaceDir { get; private set; }
 
-        /// <summary>Spool for the ArcPy tool handoff (req_/out_), under %USERPROFILE%\.arcgis_claude.</summary>
-        public string IpcDir { get; private set; }
+        /// <summary>Diagnostic log folder under %USERPROFILE%\.arcgis_claude.</summary>
+        public string LogDir { get; private set; }
 
         public string McpConfigPath => Path.Combine(WorkspaceDir, ".mcp.json");
         public string ClaudeMdPath => Path.Combine(WorkspaceDir, "CLAUDE.md");
@@ -90,11 +90,7 @@ namespace ArcGISClaude
             {
                 AddinDir = addinDir,
                 PythonDir = Path.Combine(addinDir, "Python"),
-                // Fixed, deterministic IPC folder under the user profile — NOT the
-                // temp dir. ArcGIS Pro sets a per-session TMP (…\ArcGISProTempNNNN\),
-                // and .NET/Python resolve it differently, so a temp-based path makes
-                // the C# bridge and the ArcPy tool look in different folders.
-                IpcDir = Path.Combine(
+                LogDir = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                     ".arcgis_claude"),
                 // MyDocuments (not UserProfile\Documents) so a redirected Documents
@@ -109,7 +105,6 @@ namespace ArcGISClaude
         public void EnsureWorkspace(int bridgePort, string bridgeToken)
         {
             Directory.CreateDirectory(WorkspaceDir);
-            Directory.CreateDirectory(IpcDir);
 
             // The shipped template is authoritative: re-seed CLAUDE.md whenever the
             // workspace copy differs, so template fixes reach existing installs.
