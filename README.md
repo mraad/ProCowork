@@ -188,7 +188,8 @@ src/ArcGISClaude/
 Runtime workspace (engine cwd): `%USERPROFILE%\Documents\ArcGIS\ClaudeWorkspace\` — holds
 `CLAUDE.md` (re-seeded from the shipped template whenever the template changes; edit the
 repo copy, not this one) and the generated `.mcp.json`. The bridge's request/result handoff
-files live under `%USERPROFILE%\.arcgis_claude\` (alongside `bridge.log`).
+uses geoprocessing string parameters rather than files; diagnostics are written to
+`%USERPROFILE%\.arcgis_claude\bridge.log`.
 
 ---
 

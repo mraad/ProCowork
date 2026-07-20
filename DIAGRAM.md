@@ -13,7 +13,7 @@ flowchart TB
         BridgeService["BridgeService<br/>MCP streamable-HTTP server<br/>loopback, ephemeral port, Bearer auth"]
         McpTools["McpTools<br/>(tool catalog, JSON literal)"]
         AppStateOps["AppStateOps<br/>.NET SDK, CIM thread"]
-        ScriptRunner["ScriptRunner<br/>req_*.json / out_*.json handoff"]
+        ScriptRunner["ScriptRunner<br/>GPString request / derived result"]
         RunScriptPyt["RunScript.pyt\RunScript<br/>fresh GP tool per call, GPThread"]
         HtmlPresenter["MarkdownToHtml + HtmlPresenter<br/>themed WPF rendering"]
         LiveMap["Live ArcGIS Pro project / map"]
@@ -41,7 +41,7 @@ flowchart TB
     ScriptRunner --> RunScriptPyt
     AppStateOps <--> LiveMap
     RunScriptPyt <--> LiveMap
-    RunScriptPyt -- "out_*.json (290s timeout)" --> ScriptRunner --> BridgeService --> ClaudeCodeProcess
+    RunScriptPyt -- "IGPResult.ReturnValue (290s timeout)" --> ScriptRunner --> BridgeService --> ClaudeCodeProcess
 ```
 
 ## One live-project tool call (sequence)
@@ -70,11 +70,10 @@ sequenceDiagram
         State-->>Bridge: result
     else write op (run_python_*, add_field, search_cursor, ...)
         Bridge->>Runner: dispatch
-        Runner->>Runner: write req_*.json
-        Runner->>GP: ExecuteToolAsync (GPThread, kept out of GP history)
+        Runner->>GP: ExecuteToolAsync (GPThread, request GPString,<br/>kept out of GP history)
         GP->>Map: ArcPy on data-source path
         Map-->>GP: edits applied (live)
-        GP->>Runner: write out_*.json
+        GP-->>Runner: derived result GPString
         Runner-->>Bridge: result (<=290s)
     end
 

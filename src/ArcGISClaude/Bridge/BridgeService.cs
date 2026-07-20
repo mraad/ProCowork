@@ -32,7 +32,7 @@ namespace ArcGISClaude.Bridge
     /// </summary>
     internal sealed class BridgeService : IDisposable
     {
-        private readonly string _ipcDir;
+        private readonly string _logDir;
         private readonly ScriptRunner _runner;
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
 
@@ -80,15 +80,14 @@ namespace ArcGISClaude.Bridge
 
         public BridgeService(AppPaths paths)
         {
-            _ipcDir = paths.IpcDir;
+            _logDir = paths.LogDir;
             _runner = new ScriptRunner(paths);
         }
 
         /// <summary>Bind the loopback listener and begin serving. Sets <see cref="Port"/>.</summary>
         public void Start()
         {
-            try { Directory.CreateDirectory(_ipcDir); } catch { }
-            _runner.ClearStale();
+            try { Directory.CreateDirectory(_logDir); } catch { }
 
             Token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
 
@@ -436,7 +435,7 @@ namespace ArcGISClaude.Bridge
 
         private void Log(string msg)
         {
-            try { File.AppendAllText(Path.Combine(_ipcDir, "bridge.log"),
+            try { File.AppendAllText(Path.Combine(_logDir, "bridge.log"),
                 DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " [C#] " + msg + Environment.NewLine); }
             catch { }
         }

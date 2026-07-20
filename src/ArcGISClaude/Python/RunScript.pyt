@@ -8,8 +8,8 @@ geoprocessing tool ONCE. There is no daemon thread to outlive its host, so the
 "bridge went stale / reconnects / breaks" failure mode cannot happen.
 
 Contract (driven by ScriptRunner.cs):
-  param[0] request_path : a JSON file  {"op": <str>, "args": {...}}
-  param[1] result_path  : where to write {"ok": <bool>, "error": <str|null>, "data": <any>}
+  param[0] request_json : {"op": <str>, "args": {...}}
+  param[1] result_json  : derived GPString {"ok": <bool>, "error": <str|null>, "data": <any>}
 
 execute() resolves arcpy.mp.ArcGISProject("CURRENT") **best-effort** on the
 foreground/main thread (the only place it can resolve) and injects `arcpy`, `aprx`
@@ -20,7 +20,6 @@ at all -- so they run regardless of whether CURRENT resolved.
 
 import arcpy
 
-import os
 import io
 import json
 import traceback
@@ -214,14 +213,7 @@ def _handle(cmd):
         return {"ok": False, "error": traceback.format_exc(), "data": None}
 
 
-def _write(path, obj):
-    tmp = path + ".tmp"
-    with io.open(tmp, "w", encoding="utf-8") as f:
-        json.dump(obj, f)
-    os.replace(tmp, path)
-
-
-def _run(request_path, result_path):
+def _run(request_json):
     # Resolve CURRENT best-effort on the foreground/main thread (this tool is
     # canRunInBackground=False, so execute() runs there). Path-based ops still work
     # if this fails; run_python_* simply receives aprx=None/m=None.
@@ -236,22 +228,21 @@ def _run(request_path, result_path):
         _M = None
 
     try:
-        with io.open(request_path, "r", encoding="utf-8") as f:
-            cmd = json.load(f)
+        cmd = json.loads(request_json)
     except Exception:
-        _write(result_path,
-               {"ok": False, "error": "could not read request: " + traceback.format_exc(),
-                "data": None})
-        return
+        result = {"ok": False, "error": "could not parse request: " + traceback.format_exc(),
+                  "data": None}
+    else:
+        result = _handle(cmd)
 
     try:
-        _write(result_path, _handle(cmd))
+        return json.dumps(result, ensure_ascii=False, separators=(",", ":"))
     except Exception:
-        # Last-ditch: even a serialization failure must produce a result file so the
-        # caller never blocks waiting for output.
-        _write(result_path,
-               {"ok": False, "error": "result write failed: " + traceback.format_exc(),
-                "data": None})
+        # Last-ditch: even a serialization failure must populate the derived output
+        # so the caller gets a useful response when ExecuteToolAsync completes.
+        return json.dumps(
+            {"ok": False, "error": "result serialization failed: " + traceback.format_exc(),
+             "data": None}, separators=(",", ":"))
 
 
 # --------------------------------------------------------------------------- #
@@ -268,16 +259,16 @@ class RunScript(object):
     def __init__(self):
         self.label = "RunScript"
         self.description = ("Per-call ArcPy executor for the Claude add-in bridge. "
-                            "Reads a request JSON, runs the op, writes a result JSON.")
+                            "Accepts request JSON and returns result JSON.")
         self.canRunInBackground = False  # foreground => in-process, CURRENT can resolve
 
     def getParameterInfo(self):
         request = arcpy.Parameter(
-            displayName="Request path", name="request_path",
+            displayName="Request JSON", name="request_json",
             datatype="GPString", parameterType="Required", direction="Input")
         result = arcpy.Parameter(
-            displayName="Result path", name="result_path",
-            datatype="GPString", parameterType="Required", direction="Input")
+            displayName="Result JSON", name="result_json",
+            datatype="GPString", parameterType="Derived", direction="Output")
         return [request, result]
 
     def isLicensed(self):
@@ -290,4 +281,4 @@ class RunScript(object):
         return
 
     def execute(self, parameters, messages):
-        _run(parameters[0].valueAsText, parameters[1].valueAsText)
+        parameters[1].value = _run(parameters[0].valueAsText)

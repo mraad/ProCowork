@@ -54,7 +54,7 @@ Data flow of one live-project tool call:
 
 ### Read path vs write path (`DispatchAsync`)
 - **Reads** (`list_layers`, `get_field_list`, `describe_layer`, `feature_count`, `select_by_attribute`, `zoom_to_layer`, `ping`) → `AppStateOps` on Pro's CIM thread via the .NET SDK. **No ArcPy, no `"CURRENT"`** — fast and works even with no project open.
-- **Everything else** (`run_python_*`, `add_field`, `calc_field`, `update_field`, `search_cursor`, `run_geoprocessing`) → `ScriptRunner` runs `RunScript.pyt\RunScript` as a **fresh foreground GP tool per call** (`GPExecuteToolFlags.GPThread`, kept out of the user's GP history), handing off request/result via `req_*.json`/`out_*.json` files. 290 s timeout (just under the 320 s per-request timeout in `.mcp.json`).
+- **Everything else** (`run_python_*`, `add_field`, `calc_field`, `update_field`, `search_cursor`, `run_geoprocessing`) → `ScriptRunner` runs `RunScript.pyt\RunScript` as a **fresh foreground GP tool per call** (`GPExecuteToolFlags.GPThread`, kept out of the user's GP history). Request JSON is the tool's input `GPString`; result JSON is a derived `GPString` read from `IGPResult.ReturnValue`, so this path uses no file polling, watcher, or IPC spool. 290 s timeout (just under the 320 s per-request timeout in `.mcp.json`).
 - Data edits should operate on the layer's **data-source path** (from `list_layers`' `source`), not layer objects — path-based ArcPy is robust when `aprx`/`m` are `None`, and edits still show live.
 
 ### Engine wiring (`Engine/`)
@@ -71,7 +71,7 @@ Tool-call cards (generated code + results) are toggled by `ShowToolOutputs`. A t
 
 ## Filesystem locations (resolved in `Module1.AppPaths`)
 - **Workspace** (engine cwd): `Documents\ArcGIS\ClaudeWorkspace\` — holds the seeded `CLAUDE.md` and the generated `.mcp.json`. Uses `MyDocuments` (not `%USERPROFILE%\Documents`) so redirected Documents (OneDrive/Parallels) resolves.
-- **IPC spool**: `%USERPROFILE%\.arcgis_claude\` — the `req_*`/`out_*` handoff files and `bridge.log`. Deliberately *not* the temp dir (Pro sets a per-session TMP that .NET and Python resolve differently).
+- **Bridge diagnostics**: `%USERPROFILE%\.arcgis_claude\bridge.log`.
 
 ## Two different CLAUDE.md files — don't confuse them
 - **This file** (`/CLAUDE.md`) — guidance for developing this repo.
