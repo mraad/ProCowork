@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using ArcGISClaude.Engine;
 using Newtonsoft.Json.Linq;
 
 namespace ArcGISClaude.Bridge
@@ -325,7 +326,7 @@ namespace ArcGISClaude.Bridge
             {
                 text = data == null || data.Type == JTokenType.Null
                     ? "ok"
-                    : data.ToString(Newtonsoft.Json.Formatting.Indented);
+                    : data.ToString(Newtonsoft.Json.Formatting.None); // compact — fewer tokens in context
                 isError = false;
             }
             else
@@ -336,9 +337,31 @@ namespace ArcGISClaude.Bridge
 
             return RpcResult(id, new JObject
             {
-                ["content"] = new JArray(new JObject { ["type"] = "text", ["text"] = text }),
+                ["content"] = new JArray(new JObject { ["type"] = "text", ["text"] = Clamp(text) }),
                 ["isError"] = isError,
             });
+        }
+
+        /// <summary>
+        /// Bound one tool-result string to <see cref="EngineSettings.MaxResultChars"/>
+        /// (Options page) so a large payload can't bloat the engine's context. Every
+        /// result stays in the context window for the rest of the session, so an
+        /// unbounded payload (a big search_cursor, <c>result = list(range(10**6))</c>,
+        /// a chatty GP message log) bloats every subsequent turn. The tail is replaced
+        /// with a marker that tells the model the result was cut and how to get less of it.
+        /// ponytail: flat char cap at the one chokepoint every result flows through.
+        /// If a tool ever legitimately needs the full payload, have it write to a
+        /// workspace file and return the path instead of the data.
+        /// </summary>
+        private static string Clamp(string text)
+        {
+            var max = EngineSettings.Current.MaxResultChars;
+            if (string.IsNullOrEmpty(text) || text.Length <= max) return text;
+            return text.Substring(0, max)
+                + "\n\n…[truncated " + (text.Length - max)
+                + " more chars to protect the context window. Narrow the query — add a"
+                + " where-clause, a smaller limit, or fewer fields — or write the full"
+                + " result to a file in the workspace and return its path.]";
         }
 
         /// <summary>
@@ -357,6 +380,11 @@ namespace ArcGISClaude.Bridge
                     ["data"] = data == null ? null : JToken.FromObject(data),
                 };
             }
+            // search_cursor's own default (RunScript.pyt's DEFAULT_SEARCH_LIMIT) only
+            // applies when the engine omits "limit" entirely; fill in the configured
+            // default here so the Options-page setting actually takes effect.
+            if (op == "search_cursor" && args["limit"] == null)
+                args["limit"] = EngineSettings.Current.SearchRowLimit;
             return await _runner.RunAsync(op, args, ct).ConfigureAwait(false);
         }
 

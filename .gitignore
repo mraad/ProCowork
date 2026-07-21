@@ -20,12 +20,18 @@ project.assets.json
 *.nuget.props
 *.nuget.targets
 artifacts/
+packages/
+*.binlog
 
 # Python
 __pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
+
+# Claude Code
+.claude/
+.resume
 
 # OS / editor
 Thumbs.db

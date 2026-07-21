@@ -69,7 +69,7 @@ namespace ArcGISClaude
         public string StatusText { get => _statusText; set => SetProperty(ref _statusText, value); }
 
         // When off, the transcript hides the tool-call cards (generated code + results).
-        private bool _showToolOutputs = true;
+        private bool _showToolOutputs = false;
         public bool ShowToolOutputs
         {
             get => _showToolOutputs;

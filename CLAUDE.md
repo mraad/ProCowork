@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-An ArcGIS Pro **add-in** ("GeoCowork in ArcGIS Pro") that embeds the Claude Code engine as a dockable WPF chat panel. Claude writes Python/ArcPy and runs it on the user's live, open project. Windows + ArcGIS Pro only. See `README.md` for the user-facing overview and the full architecture diagram; this file is the developer orientation.
+An ArcGIS Pro **add-in** ("ProCowork in ArcGIS Pro") that embeds the Claude Code engine as a dockable WPF chat panel. Claude writes Python/ArcPy and runs it on the user's live, open project. Windows + ArcGIS Pro only. See `README.md` for the user-facing overview; this file is the developer orientation.
 
 ## Build
 

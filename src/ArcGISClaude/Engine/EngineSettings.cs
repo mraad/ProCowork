@@ -39,6 +39,19 @@ namespace ArcGISClaude.Engine
         public string ClaudeExecutablePath { get; set; }
 
         /// <summary>
+        /// Default row cap for search_cursor when the engine's call doesn't pass its
+        /// own "limit" (see BridgeService.DispatchAsync). Mirrors RunScript.pyt's
+        /// DEFAULT_SEARCH_LIMIT, which stays as the fallback if this never reaches it.
+        /// </summary>
+        public int SearchRowLimit { get; set; } = 10000;
+
+        /// <summary>
+        /// Max characters of any single tool result echoed into the engine's context
+        /// before it's truncated; see BridgeService.Clamp.
+        /// </summary>
+        public int MaxResultChars { get; set; } = 5000;
+
+        /// <summary>
         /// The token/key that backs the current <see cref="AuthMode"/> (null for
         /// Subscription). Single source for the mode→secret mapping used by the
         /// options page and settings store.
