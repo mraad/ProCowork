@@ -5,7 +5,7 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:extensions="clr-namespace:ArcGIS.Desktop.Extensions;assembly=ArcGIS.Desktop.Extensions"
              mc:Ignorable="d"
-             d:DesignHeight="420" d:DesignWidth="520">
+             d:DesignHeight="560" d:DesignWidth="520">
 
     <UserControl.Resources>
         <ResourceDictionary>
@@ -41,6 +41,18 @@
 
         <TextBlock Text="Path to 'claude' (optional override)" />
         <TextBox Text="{Binding ClaudePath, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,8" />
+
+        <TextBlock Text="Context &amp; performance" FontWeight="Bold" FontSize="14" Margin="0,8,0,2" />
+
+        <TextBlock Text="Max rows per search_cursor call" />
+        <TextBox Text="{Binding SearchRowLimit, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,2" />
+        <TextBlock TextWrapping="Wrap" Opacity="0.7" Margin="0,0,0,8"
+                   Text="Default row cap used when Claude's search_cursor call doesn't specify its own limit." />
+
+        <TextBlock Text="Max characters per tool result" />
+        <TextBox Text="{Binding MaxResultChars, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,2" />
+        <TextBlock TextWrapping="Wrap" Opacity="0.7" Margin="0,0,0,8"
+                   Text="Caps how much of any single tool result stays in the chat context; longer results are truncated with a marker telling Claude to narrow its query." />
 
         <Button Content="Check" Command="{Binding CheckCommand}"
                 HorizontalAlignment="Left" MinWidth="80" />

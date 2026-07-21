@@ -113,7 +113,7 @@ namespace ArcGISClaude.Bridge
         "fields": { "type": "array", "items": { "type": "string" }, "description": "Field names, e.g. ['OID@','POP']. Tokens like SHAPE@XY allowed." },
         "map": { "type": "string", "description": "Optional map name; defaults to the active map when layer is a name." },
         "where": { "type": "string", "description": "Optional SQL where-clause." },
-        "limit": { "type": "integer", "description": "Optional max rows; defaults to 10000." }
+        "limit": { "type": "integer", "description": "Optional max rows; defaults to the app's configured search row limit (Options page, 10000 unless changed)." }
       },
       "required": ["layer", "fields"],
       "additionalProperties": false

@@ -53,6 +53,20 @@ namespace ArcGISClaude
             set { if (SetProperty(ref _claudePath, value)) IsModified = true; }
         }
 
+        private string _searchRowLimit;
+        public string SearchRowLimit
+        {
+            get => _searchRowLimit;
+            set { if (SetProperty(ref _searchRowLimit, value)) IsModified = true; }
+        }
+
+        private string _maxResultChars;
+        public string MaxResultChars
+        {
+            get => _maxResultChars;
+            set { if (SetProperty(ref _maxResultChars, value)) IsModified = true; }
+        }
+
         private string _checkResult;
         public string CheckResult { get => _checkResult; set => SetProperty(ref _checkResult, value); }
 
@@ -70,6 +84,8 @@ namespace ArcGISClaude
             _modelName = s.Model;
             _claudePath = s.ClaudeExecutablePath;
             _secret = s.ActiveSecret;
+            _searchRowLimit = s.SearchRowLimit.ToString();
+            _maxResultChars = s.MaxResultChars.ToString();
             return Task.FromResult(0);
         }
 
@@ -80,6 +96,8 @@ namespace ArcGISClaude
             s.Model = string.IsNullOrWhiteSpace(ModelName) ? null : ModelName.Trim();
             s.ClaudeExecutablePath = string.IsNullOrWhiteSpace(ClaudePath) ? null : ClaudePath.Trim();
             s.ActiveSecret = Secret; // AuthMode set above; clears the unused field
+            if (int.TryParse(SearchRowLimit, out var rowLimit) && rowLimit > 0) s.SearchRowLimit = rowLimit;
+            if (int.TryParse(MaxResultChars, out var charLimit) && charLimit > 0) s.MaxResultChars = charLimit;
 
             AuthSettingsStore.Save(s);
             return Task.FromResult(0);

@@ -1,4 +1,12 @@
-# GeoCowork in ArcGIS Pro
+# ProCowork (Claude) in ArcGIS Pro
+
+> **Disclaimer: experimental project, use at your own risk.** This is not an
+> Esri product or solution and is not supported, endorsed, or reviewed by Esri in any way.
+> The add-in runs by default in **YOLO mode**: generated code executes
+> automatically on your open project, without an approval prompt. Code
+> generated and run in this mode can be harmful to your project or your
+> computer — up to and including data loss or corruption. Use it with caution,
+> keep backups, and proceed entirely at your own risk.
 
 A native ArcGIS Pro add-in that embeds **Claude as a dockable chat panel**. You type a
 prompt; Claude **writes Python/ArcPy and runs it on your live, open project** — adding
@@ -21,7 +29,7 @@ inside ArcGIS Pro (the add-in's .NET code); the Claude engine is a local **child
 that reaches into Pro over a loopback HTTP endpoint.
 
 ```
-You type a prompt in the GeoCowork dock pane   (WPF, in-process)
+You type a prompt in the ProCowork dock pane   (WPF, in-process)
         │
         ▼
 Claude Code engine   ── headless `claude`, your subscription / API key   (child process)
@@ -101,7 +109,7 @@ $env:PATH = "$env:ProgramFiles\dotnet;$env:PATH"   # SDK resolver needs dotnet o
 
 1. Make sure you've logged into Claude Code with your subscription once (`claude`, then
    `/login`).
-2. In ArcGIS Pro, open a project, then go to the **GeoCowork** ribbon tab.
+2. In ArcGIS Pro, open a project, then go to the **ProCowork** ribbon tab.
 3. Click **Chat** to open the panel. Type a request and press **Enter**. The live-project
    bridge is already running — it starts automatically with the add-in, so there's no
    "Start Bridge" step.
@@ -109,7 +117,7 @@ $env:PATH = "$env:ProgramFiles\dotnet;$env:PATH"   # SDK resolver needs dotnet o
 The status bar shows the model and that it's using your subscription, and a thin strip
 under it pulses while a request is being worked on. By default the engine
 uses model `claude-opus-4-8`; pick a different one from the **Model** dropdown on
-**Options ▸ GeoCowork** (or leave it blank to use Claude Code's own default).
+**Options ▸ ProCowork** (or leave it blank to use Claude Code's own default).
 
 ### Try it
 - "List the layers in the current map."
@@ -125,7 +133,7 @@ the project.
 
 ## Authentication
 
-Configure under **Options ▸ GeoCowork**:
+Configure under **Options ▸ ProCowork**:
 
 - **Claude subscription (Pro/Max login)** — *default, recommended.* Uses your stored
   Claude Code credentials. The add-in deliberately removes any `ANTHROPIC_API_KEY` from the
@@ -154,14 +162,14 @@ without rework.
 ## Troubleshooting
 
 - **"claude not found"** — install Claude Code and log in; or set the path on
-  **Options ▸ GeoCowork**.
+  **Options ▸ ProCowork**.
 - **Live tools say the bridge isn't responding** — the bridge starts automatically with the
   add-in, so this usually means Pro is still loading or the add-in didn't load. Confirm the
-  **GeoCowork** ribbon tab is present, then retry; disk/Bash analysis works regardless. Check
+  **ProCowork** ribbon tab is present, then retry; disk/Bash analysis works regardless. Check
   `%USERPROFILE%\.arcgis_claude\bridge.log` if it persists.
 - **It's billing my API account, not my subscription** — an `ANTHROPIC_API_KEY` is set
   somewhere with higher precedence. Use subscription mode (which strips it) and confirm via
-  the status bar / **Options ▸ GeoCowork ▸ Check**.
+  the status bar / **Options ▸ ProCowork ▸ Check**.
 - **Edits don't appear** — reads and map/selection writes run on Pro's CIM thread and ArcPy
   runs on the foreground GP thread, so edits generally show up live; if a data write doesn't
   refresh, re-run the request or refresh the layer.

@@ -28,6 +28,8 @@ namespace ArcGISClaude.Options
                 if (o["model"] != null) s.Model = (string)o["model"];
                 s.ClaudeExecutablePath = (string)o["claudePath"];
                 s.ActiveSecret = Unprotect((string)o["secret"]); // AuthMode parsed above
+                if (o["searchRowLimit"] != null) s.SearchRowLimit = (int)o["searchRowLimit"];
+                if (o["maxResultChars"] != null) s.MaxResultChars = (int)o["maxResultChars"];
             }
             catch { /* ignore corrupt/missing settings */ }
         }
@@ -43,6 +45,8 @@ namespace ArcGISClaude.Options
                     ["model"] = s.Model,
                     ["claudePath"] = s.ClaudeExecutablePath,
                     ["secret"] = Protect(s.ActiveSecret),
+                    ["searchRowLimit"] = s.SearchRowLimit,
+                    ["maxResultChars"] = s.MaxResultChars,
                 };
                 File.WriteAllText(FilePath, o.ToString());
             }
