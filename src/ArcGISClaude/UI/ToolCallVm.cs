@@ -29,9 +29,6 @@ namespace ArcGISClaude.UI
         }
         public bool HasResult => !string.IsNullOrEmpty(_result);
 
-        private bool _isError;
-        public bool IsError { get => _isError; set => Set(ref _isError, value); }
-
         public ToolCallVm(string fullName, string code)
         {
             ToolName = Engine.StreamJsonReader.ShortToolName(fullName);

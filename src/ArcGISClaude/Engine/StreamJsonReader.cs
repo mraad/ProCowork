@@ -20,10 +20,10 @@ namespace ArcGISClaude.Engine
         public static string Type(JObject ev) => (string)ev["type"];
         public static string Subtype(JObject ev) => (string)ev["subtype"];
 
-        public static JArray ContentBlocks(JObject ev)
+        private static JArray ContentBlocks(JObject ev)
             => ev["message"]?["content"] as JArray ?? new JArray();
 
-        public static IEnumerable<JObject> TextBlocks(JObject ev)
+        private static IEnumerable<JObject> TextBlocks(JObject ev)
             => ContentBlocks(ev).OfType<JObject>().Where(b => (string)b["type"] == "text");
 
         public static IEnumerable<JObject> ToolUseBlocks(JObject ev)

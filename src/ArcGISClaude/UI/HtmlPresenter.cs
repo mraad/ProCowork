@@ -96,9 +96,9 @@ namespace ArcGISClaude.UI
         // --------------------------------------------------------------------- //
         //  block-level walk
         // --------------------------------------------------------------------- //
-        // Render rebuilds the visual tree on every Html update (streaming). Code
-        // blocks keep a ScrollViewer; without this, each rebuild resets the offset.
-        private struct CodeScroll
+        // Render rebuilds the tree on every Html update (streaming). ScrollViewers
+        // (code blocks and wide tables) keep their offsets across rebuilds.
+        private struct ScrollState
         {
             public double Offset;
             public double HorizOffset;
@@ -107,7 +107,7 @@ namespace ArcGISClaude.UI
 
         private void Render(string html)
         {
-            var saved = CaptureCodeScrolls();
+            var saved = SnapshotScrolls(Child);
             var panel = new StackPanel();
             if (!string.IsNullOrEmpty(html))
             {
@@ -116,21 +116,32 @@ namespace ArcGISClaude.UI
                 ParseBlocks(toks, ref i, panel, null);
             }
             Child = panel;
-            RestoreCodeScrolls(saved);
+            RestoreScrolls(saved);
         }
 
-        private List<CodeScroll> CaptureCodeScrolls()
+        private static List<ScrollState> SnapshotScrolls(DependencyObject root)
         {
-            var list = new List<CodeScroll>();
-            CollectScrollViewers(Child, list, null);
+            var viewers = new List<ScrollViewer>();
+            WalkScrollViewers(root, viewers);
+            var list = new List<ScrollState>(viewers.Count);
+            foreach (var sv in viewers)
+            {
+                list.Add(new ScrollState
+                {
+                    Offset = sv.VerticalOffset,
+                    HorizOffset = sv.HorizontalOffset,
+                    StickToBottom = sv.ScrollableHeight <= 0.5
+                                    || sv.VerticalOffset >= sv.ScrollableHeight - 1.0,
+                });
+            }
             return list;
         }
 
-        private void RestoreCodeScrolls(List<CodeScroll> saved)
+        private void RestoreScrolls(List<ScrollState> saved)
         {
             if (saved.Count == 0 || Child == null) return;
             var viewers = new List<ScrollViewer>();
-            CollectScrollViewers(Child, null, viewers);
+            WalkScrollViewers(Child, viewers);
             int n = Math.Min(viewers.Count, saved.Count);
             if (n == 0) return;
             Dispatcher.BeginInvoke(new Action(() =>
@@ -144,33 +155,18 @@ namespace ArcGISClaude.UI
             }), DispatcherPriority.Loaded);
         }
 
-        private static void CollectScrollViewers(DependencyObject d, List<CodeScroll> states, List<ScrollViewer> viewers)
+        private static void WalkScrollViewers(DependencyObject d, List<ScrollViewer> into)
         {
             if (d == null) return;
-            if (d is ScrollViewer sv)
-            {
-                if (states != null)
-                {
-                    bool stick = sv.ScrollableHeight <= 0.5
-                                 || sv.VerticalOffset >= sv.ScrollableHeight - 1.0;
-                    states.Add(new CodeScroll
-                    {
-                        Offset = sv.VerticalOffset,
-                        HorizOffset = sv.HorizontalOffset,
-                        StickToBottom = stick,
-                    });
-                }
-                if (viewers != null) viewers.Add(sv);
-                return;
-            }
+            if (d is ScrollViewer sv) { into.Add(sv); return; }
             if (d is Panel p)
             {
                 foreach (UIElement c in p.Children)
-                    CollectScrollViewers(c, states, viewers);
+                    WalkScrollViewers(c, into);
                 return;
             }
             if (d is Border b)
-                CollectScrollViewers(b.Child, states, viewers);
+                WalkScrollViewers(b.Child, into);
         }
 
         private void ParseBlocks(List<Tok> toks, ref int i, StackPanel panel, string stopTag)

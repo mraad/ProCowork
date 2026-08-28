@@ -51,11 +51,6 @@ namespace ArcGISClaude.UI
     internal sealed class SystemNoticeVm : ChatItemVm
     {
         public string Text { get; }
-        public bool IsError { get; }
-        public SystemNoticeVm(string text, bool isError = false)
-        {
-            Text = text;
-            IsError = isError;
-        }
+        public SystemNoticeVm(string text) => Text = text;
     }
 }
