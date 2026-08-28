@@ -101,6 +101,7 @@ namespace ArcGISClaude.UI
         private struct CodeScroll
         {
             public double Offset;
+            public double HorizOffset;
             public bool StickToBottom;
         }
 
@@ -138,6 +139,7 @@ namespace ArcGISClaude.UI
                 {
                     if (saved[i].StickToBottom) viewers[i].ScrollToBottom();
                     else viewers[i].ScrollToVerticalOffset(saved[i].Offset);
+                    viewers[i].ScrollToHorizontalOffset(saved[i].HorizOffset);
                 }
             }), DispatcherPriority.Loaded);
         }
@@ -151,7 +153,12 @@ namespace ArcGISClaude.UI
                 {
                     bool stick = sv.ScrollableHeight <= 0.5
                                  || sv.VerticalOffset >= sv.ScrollableHeight - 1.0;
-                    states.Add(new CodeScroll { Offset = sv.VerticalOffset, StickToBottom = stick });
+                    states.Add(new CodeScroll
+                    {
+                        Offset = sv.VerticalOffset,
+                        HorizOffset = sv.HorizontalOffset,
+                        StickToBottom = stick,
+                    });
                 }
                 if (viewers != null) viewers.Add(sv);
                 return;
@@ -475,9 +482,34 @@ namespace ArcGISClaude.UI
             int cols = 0;
             foreach (var r in rows) cols = Math.Max(cols, r.Count);
 
+            // Min width per column = longest word (plus cell padding) so headers
+            // wrap on spaces instead of stretching to the full phrase, while
+            // unbreakable tokens (paths, SHAPE@XY) still force the table wider
+            // than the panel — the ScrollViewer below then shows an H-bar.
+            var colMin = new double[cols];
+            for (int c = 0; c < cols; c++) colMin[c] = 32;
+            for (int r = 0; r < rows.Count; r++)
+            {
+                var cells = rows[r];
+                var weight = r == 0 ? FontWeights.Bold : FontWeights.Normal;
+                for (int c = 0; c < cells.Count; c++)
+                    colMin[c] = Math.Max(colMin[c], MinWordWidth(cells[c], weight));
+            }
+
+            double minTotal = 0;
             var grid = new Grid();
             for (int c = 0; c < cols; c++)
-                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            {
+                grid.ColumnDefinitions.Add(new ColumnDefinition
+                {
+                    Width = new GridLength(1, GridUnitType.Star),
+                    MinWidth = colMin[c],
+                });
+                minTotal += colMin[c];
+            }
+            grid.MinWidth = minTotal;
+            grid.Width = minTotal; // SizeChanged raises this to the viewport when it fits
+
             for (int r = 0; r < rows.Count; r++)
                 grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
@@ -486,7 +518,11 @@ namespace ArcGISClaude.UI
                 var cells = rows[r];
                 for (int c = 0; c < cols; c++)
                 {
-                    var tb = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(5, 3, 5, 3) };
+                    var tb = new TextBlock
+                    {
+                        TextWrapping = TextWrapping.Wrap,
+                        Margin = new Thickness(5, 3, 5, 3),
+                    };
                     if (r == 0) tb.FontWeight = FontWeights.Bold;        // header row
                     if (c < cells.Count) foreach (var inl in cells[c]) tb.Inlines.Add(inl);
 
@@ -503,10 +539,61 @@ namespace ArcGISClaude.UI
             {
                 Child = grid,
                 BorderThickness = new Thickness(1, 1, 0, 0), // top + left; cells draw right + bottom
-                Margin = new Thickness(0, 4, 0, 4),
             };
             outer.SetResourceReference(Border.BorderBrushProperty, "Esri_BorderBrush");
-            return outer;
+
+            var scroller = new ScrollViewer
+            {
+                Content = outer,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Margin = new Thickness(0, 4, 0, 4),
+            };
+            // ScrollViewer measures its child at infinite width, so Star columns
+            // would never wrap. Pin the grid to the viewport (or the word-min
+            // total if that's larger) so headers wrap on words and an H-bar
+            // appears only when unbreakable content exceeds the panel.
+            scroller.SizeChanged += (s, e) =>
+            {
+                double view = scroller.ViewportWidth;
+                if (view <= 0) return;
+                grid.Width = Math.Max(view, minTotal);
+            };
+            return scroller;
+        }
+
+        /// <summary>Widest whitespace-delimited token in a cell, plus horizontal padding.</summary>
+        private static double MinWordWidth(List<Inline> inlines, FontWeight weight)
+        {
+            const double pad = 10; // TextBlock margin 5+5
+            var text = PlainText(inlines);
+            if (string.IsNullOrWhiteSpace(text)) return 24 + pad;
+            double max = 0;
+            foreach (var word in text.Split((char[])null, StringSplitOptions.RemoveEmptyEntries))
+            {
+                var tb = new TextBlock { Text = word, FontWeight = weight };
+                tb.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                if (tb.DesiredSize.Width > max) max = tb.DesiredSize.Width;
+            }
+            return max + pad;
+        }
+
+        private static string PlainText(IEnumerable<Inline> inlines)
+        {
+            var sb = new StringBuilder();
+            AppendPlain(inlines, sb);
+            return sb.ToString();
+        }
+
+        private static void AppendPlain(IEnumerable<Inline> inlines, StringBuilder sb)
+        {
+            if (inlines == null) return;
+            foreach (var inl in inlines)
+            {
+                if (inl is Run r) sb.Append(r.Text);
+                else if (inl is LineBreak) sb.Append(' ');
+                else if (inl is Span s) AppendPlain(s.Inlines, sb);
+            }
         }
 
         private FrameworkElement MakeBlockquote(List<Tok> toks, ref int i)

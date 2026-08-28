@@ -23,7 +23,7 @@
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <AssemblyName>ArcGISClaude</AssemblyName>
     <RootNamespace>ArcGISClaude</RootNamespace>
-    <Version>0.1.10</Version>
+    <Version>0.1.11</Version>
     <Company>mraad23</Company>
     <Product>ProCowork in ArcGIS Pro</Product>
 
