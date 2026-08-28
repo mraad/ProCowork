@@ -436,8 +436,12 @@ namespace ArcGISClaude.UI
             grid.MinWidth = minTotal;
             // Start bounded so the first (infinite-width) measure inside the
             // ScrollViewer doesn't lay every cell out unwrapped; the SizeChanged
-            // handler below raises it to the scroller width on the first pass.
+            // handler below raises it to the viewport on the first pass.
             grid.Width = minTotal;
+            // An explicit Width defeats Stretch, and WPF then treats Stretch as
+            // Center — so any grid narrower than the viewport floats in the middle
+            // with a gap down both sides. Hug the left edge instead.
+            grid.HorizontalAlignment = HorizontalAlignment.Left;
 
             for (int r = 0; r < rows.Count; r++)
                 grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -483,30 +487,51 @@ namespace ArcGISClaude.UI
             // total if larger) so columns fill the table when they fit, and an
             // H-bar appears only when unbreakable content overflows. `outer`'s
             // border sits between grid and viewport, so its thickness comes off
-            // the top: pin to the full width and the extent is always wider than
-            // the viewport, which shows an H-bar under every table. SizeChanged
-            // fires on the first layout pass (0 -> N), so no Loaded hook needed.
+            // the top: pin to the full width and the extent is always a pixel
+            // wider than the viewport, which shows an H-bar under every table.
             double chrome = outer.BorderThickness.Left + outer.BorderThickness.Right;
             scroller.SizeChanged += (s, e) =>
             {
-                double avail = scroller.ViewportWidth - chrome;
+                // Measure off e.NewSize, not ViewportWidth: SizeChanged fires on the
+                // first layout pass (0 -> N) but ViewportWidth can still read 0 there,
+                // which left the grid stuck at minTotal with no later pass to fix it.
+                // Vertical scrolling is disabled, so no v-bar ever eats into the width.
+                double avail = e.NewSize.Width - chrome;
                 if (avail > 0) grid.Width = Math.Max(avail, minTotal);
             };
             return scroller;
         }
 
-        /// <summary>Widest whitespace-delimited token in a cell, plus horizontal padding.</summary>
-        private static double MinWordWidth(List<Inline> inlines, FontWeight weight)
+        /// <summary>
+        /// Widest whitespace-delimited token in a cell, plus horizontal padding.
+        /// Measured in the font the cell itself will inherit from the presenter — a
+        /// bare TextBlock measures at the system default, which underestimates the
+        /// themed font and lets a column come out narrower than its own longest
+        /// word, so the text breaks mid-word ("Kingdo|m") once a table is squeezed
+        /// to its minimum. Inline code runs (Consolas) are still measured in the
+        /// body font; they keep the inherited size, so the error is small.
+        /// </summary>
+        private double MinWordWidth(List<Inline> inlines, FontWeight weight)
         {
             const double pad = 10; // TextBlock margin 5+5
             var text = PlainText(inlines);
             if (string.IsNullOrWhiteSpace(text)) return 24 + pad;
+
+            // One probe reused across words — setting Text invalidates its measure.
+            var probe = new TextBlock
+            {
+                FontWeight = weight,
+                FontFamily = TextElement.GetFontFamily(this),
+                FontSize = TextElement.GetFontSize(this),
+                FontStyle = TextElement.GetFontStyle(this),
+                FontStretch = TextElement.GetFontStretch(this),
+            };
             double max = 0;
             foreach (var word in text.Split((char[])null, StringSplitOptions.RemoveEmptyEntries))
             {
-                var tb = new TextBlock { Text = word, FontWeight = weight };
-                tb.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-                if (tb.DesiredSize.Width > max) max = tb.DesiredSize.Width;
+                probe.Text = word;
+                probe.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                if (probe.DesiredSize.Width > max) max = probe.DesiredSize.Width;
             }
             return max + pad;
         }
