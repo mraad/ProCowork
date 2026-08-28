@@ -25,7 +25,8 @@ The bridge runs one live-map call at a time — don't fire several in parallel.
 1. Inspect before using any name. Start with `list_layers` (each feature layer
    and standalone table has on-disk `source`). Skip `include_counts` unless you
    need counts; use `feature_count` for one layer. Then `get_field_list` before
-   any field name. An empty `list_layers` means no map is open — say so.
+   any field name. An empty `list_layers` is either no active map or a map with
+   no layers — `ping` tells them apart (`active_map` present or not).
 2. Use the smallest tool that fits:
    - Orient: `list_layers`, `get_field_list`, `describe_layer`, `feature_count`,
      `search_cursor`, `ping` (project path + default gdb)
@@ -33,7 +34,8 @@ The bridge runs one live-map call at a time — don't fire several in parallel.
    - Schema / values: `add_field`, `calc_field`, `update_field`
    - Named GP tool: `run_geoprocessing` (e.g. `analysis.Buffer`)
    - Anything else: `run_python_current`
-3. On error, read the traceback, fix the code, and retry until it runs clean.
+3. On error: for reads, fix and retry. For writes, inspect what landed first;
+   retry only if the op is idempotent or you rolled it back / restored a backup.
 
 Curated tools take a **layer name**. In Python, use the **`source` path**.
 
@@ -62,7 +64,8 @@ project; edits still appear live in the map.
 
 Every tool result is truncated around 5000 characters. Cap `result` (top-N,
 a summary, or write a workspace file and return its path). `search_cursor`
-defaults to 10000 rows; pass a lower `limit` when you can.
+defaults to the Options row cap (10000 unless changed); pass a lower `limit`
+when you can.
 
 ## Recipes
 
@@ -89,11 +92,11 @@ else:
 Generated code runs immediately. Some edits are irreversible. Don't pause for
 confirmation — back up, then do the work.
 
-- Wrap cursor / geometry edits in an edit session so they are undoable.
-  Workspace = the geodatabase (or folder) that contains the source, not `aprx`:
+- Wrap cursor / geometry edits in an edit session so a failure discards the
+  session. User undo depends on the data source (versioned enterprise vs file
+  gdb). Workspace = `arcpy.Describe(path).workspace`, not `aprx`:
   ```python
-  import os
-  ws = os.path.dirname(parcels)   # .gdb or folder
+  ws = arcpy.Describe(parcels).workspace   # gdb or folder, not a feature dataset
   with arcpy.da.Editor(ws):
       pass  # cursor edits
   ```
