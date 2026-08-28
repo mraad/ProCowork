@@ -20,8 +20,10 @@ namespace ArcGISClaude
             if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0) return; // Shift+Enter → newline
 
             if (DataContext is ChatDockPaneViewModel vm && vm.SendCommand.CanExecute(null))
+            {
                 vm.SendCommand.Execute(null);
-            e.Handled = true; // swallow the Enter so no newline is inserted
+                e.Handled = true; // swallow only when we send, so Enter during a turn still types
+            }
         }
     }
 }

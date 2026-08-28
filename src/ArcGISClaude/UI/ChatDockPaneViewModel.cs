@@ -32,6 +32,9 @@ namespace ArcGISClaude
         private static ChatDockPaneViewModel _instance;
 
         private ClaudeCodeProcess _engine;
+        private Action<JObject> _onEvent;
+        private Action<string> _onStdErr;
+        private Action<int> _onExited;
 
         // Claude Code emits system/init at the start of every turn, so the connect
         // notice must be gated to once per engine session. _hasConnectedBefore then
@@ -39,10 +42,10 @@ namespace ArcGISClaude
         private bool _sessionAnnounced;
         private bool _hasConnectedBefore;
 
-        // Set by OnStop so OnEngineExited can tell a user-requested kill from a
-        // crash and skip the error notice. Both sites run on the UI thread (command
-        // handler / BeginInvoke'd body), so no locking is needed.
-        private bool _stopRequested;
+        // Bumped on every ShutdownEngine so BeginInvoke'd callbacks and in-flight
+        // SendUserMessageAsync catches from a replaced engine cannot mutate the
+        // new session's transcript or turn state.
+        private int _engineEpoch;
 
         public ObservableCollection<ChatItemVm> Items { get; } = new ObservableCollection<ChatItemVm>();
 
@@ -84,7 +87,7 @@ namespace ArcGISClaude
             _ui = System.Windows.Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
             SendCommand = new RelayCommand(() => _ = OnSendAsync(),
                                            () => !IsTurnActive && !string.IsNullOrWhiteSpace(Input));
-            StopCommand = new RelayCommand(OnStop, () => _engine != null && _engine.IsRunning);
+            StopCommand = new RelayCommand(OnStop, () => IsTurnActive);
             _instance = this;
         }
 
@@ -100,11 +103,12 @@ namespace ArcGISClaude
             var e = _engine;
             if (e == null) return;
             _engine = null;
-            // Detach-before-dispose, same as EnsureEngine. Detaching Exited is
-            // deliberate here: the UI is going away, no exit notice is wanted.
-            e.EventReceived -= OnEngineEvent;
-            e.StdErrReceived -= OnEngineStdErr;
-            e.Exited -= OnEngineExited;
+            _engineEpoch++;
+            // Detach the exact subscribe-time delegates (not method groups) so a
+            // handler already on the stack still carries the old epoch.
+            if (_onEvent != null) { e.EventReceived -= _onEvent; _onEvent = null; }
+            if (_onStdErr != null) { e.StdErrReceived -= _onStdErr; _onStdErr = null; }
+            if (_onExited != null) { e.Exited -= _onExited; _onExited = null; }
             try { e.Dispose(); } catch { }
         }
 
@@ -120,26 +124,22 @@ namespace ArcGISClaude
             // A previous engine that exited or was stopped must be detached and
             // disposed before we replace it, or its process handle and event
             // subscriptions leak. Stale tool ids from that session go with it.
-            if (_engine != null)
-            {
-                _engine.EventReceived -= OnEngineEvent;
-                _engine.StdErrReceived -= OnEngineStdErr;
-                _engine.Exited -= OnEngineExited;
-                _engine.Dispose();
-            }
+            ShutdownEngine();
 
             _toolsById.Clear();
             lock (_stderrTail) _stderrTail.Clear();
 
             var paths = Module1.Current.Paths;
             _engine = new ClaudeCodeProcess(paths.WorkspaceDir, paths.McpConfigPath);
-            _engine.EventReceived += OnEngineEvent;
-            _engine.StdErrReceived += OnEngineStdErr;
-            _engine.Exited += OnEngineExited;
+            var epoch = _engineEpoch;
+            _onEvent = ev => OnEngineEvent(epoch, ev);
+            _onStdErr = line => OnEngineStdErr(epoch, line);
+            _onExited = code => OnEngineExited(epoch, code);
+            _engine.EventReceived += _onEvent;
+            _engine.StdErrReceived += _onStdErr;
+            _engine.Exited += _onExited;
             _engine.Start(EngineSettings.Current);
             _sessionAnnounced = false;  // new session -> announce once on its first init
-            _stopRequested = false;     // a stale stop must not mute this session's exit
-            StopCommand.RaiseCanExecuteChanged();  // _engine changed outside IsTurnActive
             // The ArcPy bridge is owned by Module1 and runs automatically for the
             // whole Pro session — nothing to start here.
         }
@@ -152,14 +152,20 @@ namespace ArcGISClaude
             Input = "";
             Items.Add(new UserMessageVm(text));
             IsTurnActive = true;
+            int? epoch = null;
 
             try
             {
                 EnsureEngine();
+                epoch = _engineEpoch;
                 await _engine.SendUserMessageAsync(text);
             }
             catch (Exception ex)
             {
+                // Stop/respawn during the await bumps the epoch. Don't show a
+                // send-failure or clear IsTurnActive for a newer session.
+                // EnsureEngine itself throwing leaves epoch null — always surface that.
+                if (epoch is int e && e != _engineEpoch) return;
                 Items.Add(new SystemNoticeVm("Failed to send: " + ex.Message, true));
                 IsTurnActive = false;
             }
@@ -167,14 +173,23 @@ namespace ArcGISClaude
 
         private void OnStop()
         {
-            _stopRequested = true;  // the coming exit is expected — no error notice
-            _engine?.Stop();
             IsTurnActive = false;
+            StatusText = "Engine stopped.";
+            // Kill immediately (same path as Pro shutdown). A grace-period Stop
+            // left _engine.IsRunning true, so the next Send wrote to a dying stdin.
+            ShutdownEngine();
         }
 
         // ---- event rendering (marshalled to the UI thread) --------------------
 
-        private void OnEngineEvent(JObject ev) => _ui.BeginInvoke(new Action(() => HandleEvent(ev)));
+        private void OnEngineEvent(int epoch, JObject ev)
+        {
+            _ui.BeginInvoke(new Action(() =>
+            {
+                if (epoch != _engineEpoch) return;
+                HandleEvent(ev);
+            }));
+        }
 
         private void HandleEvent(JObject ev)
         {
@@ -249,7 +264,7 @@ namespace ArcGISClaude
             }
         }
 
-        private void OnEngineStdErr(string line)
+        private void OnEngineStdErr(int epoch, string line)
         {
             // stderr carries diagnostics, not the error channel — real errors arrive
             // as structured result/tool_result events. Keep only a short tail to show
@@ -258,23 +273,27 @@ namespace ArcGISClaude
             System.Diagnostics.Debug.WriteLine("[claude stderr] " + line);
             lock (_stderrTail)
             {
+                if (epoch != _engineEpoch) return;
                 _stderrTail.Enqueue(line);
                 while (_stderrTail.Count > 10) _stderrTail.Dequeue();
             }
         }
 
-        private void OnEngineExited(int code) => _ui.BeginInvoke(new Action(() =>
+        private void OnEngineExited(int epoch, int code)
         {
-            IsTurnActive = false;
-            StatusText = "Engine stopped.";
-            if (_stopRequested) { _stopRequested = false; return; }  // user asked for this exit
-            if (code == 0) return;
+            _ui.BeginInvoke(new Action(() =>
+            {
+                if (epoch != _engineEpoch) return;
+                IsTurnActive = false;
+                StatusText = "Engine stopped.";
+                if (code == 0) return;
 
-            string tail;
-            lock (_stderrTail) tail = string.Join("\n", _stderrTail);
-            var msg = $"Claude engine exited (code {code}).";
-            if (!string.IsNullOrWhiteSpace(tail)) msg += "\n" + tail;
-            Items.Add(new SystemNoticeVm(msg, true));
-        }));
+                string tail;
+                lock (_stderrTail) tail = string.Join("\n", _stderrTail);
+                var msg = $"Claude engine exited (code {code}).";
+                if (!string.IsNullOrWhiteSpace(tail)) msg += "\n" + tail;
+                Items.Add(new SystemNoticeVm(msg, true));
+            }));
+        }
     }
 }

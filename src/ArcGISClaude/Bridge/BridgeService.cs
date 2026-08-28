@@ -302,7 +302,7 @@ namespace ArcGISClaude.Bridge
                 return JObjectRpcError(id, -32602, "unknown tool: " + name);
 
             JObject res;
-            await _gate.WaitAsync().ConfigureAwait(false); // the serial-dispatch invariant
+            await _gate.WaitAsync(_cts.Token).ConfigureAwait(false); // the serial-dispatch invariant
             try { res = await DispatchAsync(name, args, _cts.Token).ConfigureAwait(false); }
             catch (Exception ex) { res = Err(ex.GetType().Name + ": " + ex.Message); }
             finally { _gate.Release(); }

@@ -30,7 +30,7 @@ namespace ArcGISClaude.Bridge
 [
   {
     "name": "run_python_current",
-    "description": "PRIMARY TOOL. Execute Python/ArcPy code IN-PROCESS against the user's open ArcGIS Pro project (arcpy.mp.ArcGISProject('CURRENT')). `arcpy` is imported; helpers `proj()` and `active_map()` are available. Assign a JSON-serializable value to a variable named `result` to return data; anything you print() is captured. Use this for anything the curated tools don't cover. Inspect schema with list_layers/get_field_list first.",
+    "description": "PRIMARY TOOL. Execute Python/ArcPy in-process against the open project. Injected: `arcpy`; `aprx` (project or None); `m` (active map or None) — guard both before use; `proj()` / `active_map()` raise if no project. Do not call ArcGISProject('CURRENT'). Assign JSON-serializable data to `result`; print() is captured. Use for anything the curated tools don't cover. Inspect schema with list_layers/get_field_list first.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -42,7 +42,7 @@ namespace ArcGISClaude.Bridge
   },
   {
     "name": "run_python_file",
-    "description": "Run a .py file (e.g. one you wrote into the workspace) in-process against the CURRENT project.",
+    "description": "Run a .py file (e.g. one you wrote into the workspace) the same way as run_python_current (injected arcpy/aprx/m; aprx and m may be None).",
     "inputSchema": {
       "type": "object",
       "properties": {

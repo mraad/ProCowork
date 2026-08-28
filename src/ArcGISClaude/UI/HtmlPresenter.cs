@@ -8,6 +8,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace ArcGISClaude.UI
 {
@@ -56,6 +57,8 @@ namespace ArcGISClaude.UI
             @"href\s*=\s*(?:""(?<u>[^""]*)""|'(?<u>[^']*)'|(?<u>[^\s>]+))",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+        private static readonly FontFamily CodeFont = new FontFamily("Consolas");
+
         // --------------------------------------------------------------------- //
         //  tokenizer
         // --------------------------------------------------------------------- //
@@ -93,8 +96,17 @@ namespace ArcGISClaude.UI
         // --------------------------------------------------------------------- //
         //  block-level walk
         // --------------------------------------------------------------------- //
+        // Render rebuilds the visual tree on every Html update (streaming). Code
+        // blocks keep a ScrollViewer; without this, each rebuild resets the offset.
+        private struct CodeScroll
+        {
+            public double Offset;
+            public bool StickToBottom;
+        }
+
         private void Render(string html)
         {
+            var saved = CaptureCodeScrolls();
             var panel = new StackPanel();
             if (!string.IsNullOrEmpty(html))
             {
@@ -103,6 +115,55 @@ namespace ArcGISClaude.UI
                 ParseBlocks(toks, ref i, panel, null);
             }
             Child = panel;
+            RestoreCodeScrolls(saved);
+        }
+
+        private List<CodeScroll> CaptureCodeScrolls()
+        {
+            var list = new List<CodeScroll>();
+            CollectScrollViewers(Child, list, null);
+            return list;
+        }
+
+        private void RestoreCodeScrolls(List<CodeScroll> saved)
+        {
+            if (saved.Count == 0 || Child == null) return;
+            var viewers = new List<ScrollViewer>();
+            CollectScrollViewers(Child, null, viewers);
+            int n = Math.Min(viewers.Count, saved.Count);
+            if (n == 0) return;
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                for (int i = 0; i < n; i++)
+                {
+                    if (saved[i].StickToBottom) viewers[i].ScrollToBottom();
+                    else viewers[i].ScrollToVerticalOffset(saved[i].Offset);
+                }
+            }), DispatcherPriority.Loaded);
+        }
+
+        private static void CollectScrollViewers(DependencyObject d, List<CodeScroll> states, List<ScrollViewer> viewers)
+        {
+            if (d == null) return;
+            if (d is ScrollViewer sv)
+            {
+                if (states != null)
+                {
+                    bool stick = sv.ScrollableHeight <= 0.5
+                                 || sv.VerticalOffset >= sv.ScrollableHeight - 1.0;
+                    states.Add(new CodeScroll { Offset = sv.VerticalOffset, StickToBottom = stick });
+                }
+                if (viewers != null) viewers.Add(sv);
+                return;
+            }
+            if (d is Panel p)
+            {
+                foreach (UIElement c in p.Children)
+                    CollectScrollViewers(c, states, viewers);
+                return;
+            }
+            if (d is Border b)
+                CollectScrollViewers(b.Child, states, viewers);
         }
 
         private void ParseBlocks(List<Tok> toks, ref int i, StackPanel panel, string stopTag)
@@ -212,7 +273,7 @@ namespace ArcGISClaude.UI
                             AddSpan(result, new Span { TextDecorations = TextDecorations.Strikethrough }, CollectInlines(toks, ref i, name));
                             break;
                         case "code":
-                            var code = new Run(CollectText(toks, ref i, "code")) { FontFamily = new FontFamily("Consolas") };
+                            var code = new Run(CollectText(toks, ref i, "code")) { FontFamily = CodeFont };
                             code.SetResourceReference(TextElement.BackgroundProperty, "Esri_BackgroundPressedBrush");
                             result.Add(code);
                             break;
@@ -475,7 +536,7 @@ namespace ArcGISClaude.UI
             var tb = new TextBlock
             {
                 Text = code,
-                FontFamily = new FontFamily("Consolas"),
+                FontFamily = CodeFont,
                 FontSize = 11,
                 TextWrapping = TextWrapping.NoWrap,
             };
@@ -483,7 +544,7 @@ namespace ArcGISClaude.UI
             {
                 Content = tb,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 MaxHeight = 260,
             };
             var border = new Border
