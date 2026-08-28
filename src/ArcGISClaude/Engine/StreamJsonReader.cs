@@ -20,19 +20,17 @@ namespace ArcGISClaude.Engine
         public static string Type(JObject ev) => (string)ev["type"];
         public static string Subtype(JObject ev) => (string)ev["subtype"];
 
-        private static JArray ContentBlocks(JObject ev)
-            => ev["message"]?["content"] as JArray ?? new JArray();
+        /// <summary>The message's content blocks of one <c>type</c> ("text", "tool_use", …).</summary>
+        private static IEnumerable<JObject> Blocks(JObject ev, string type)
+            => (ev["message"]?["content"] as JArray ?? new JArray())
+                .OfType<JObject>().Where(b => (string)b["type"] == type);
 
-        public static IEnumerable<JObject> ToolUseBlocks(JObject ev)
-            => ContentBlocks(ev).OfType<JObject>().Where(b => (string)b["type"] == "tool_use");
+        public static IEnumerable<JObject> ToolUseBlocks(JObject ev) => Blocks(ev, "tool_use");
 
-        public static IEnumerable<JObject> ToolResultBlocks(JObject ev)
-            => ContentBlocks(ev).OfType<JObject>().Where(b => (string)b["type"] == "tool_result");
+        public static IEnumerable<JObject> ToolResultBlocks(JObject ev) => Blocks(ev, "tool_result");
 
         public static string JoinedText(JObject ev)
-            => string.Join("", ContentBlocks(ev).OfType<JObject>()
-                .Where(b => (string)b["type"] == "text")
-                .Select(b => (string)b["text"]));
+            => string.Join("", Blocks(ev, "text").Select(b => (string)b["text"]));
 
         /// <summary>tool_result content may be a string or an array of text parts.</summary>
         public static string ToolResultText(JObject block)

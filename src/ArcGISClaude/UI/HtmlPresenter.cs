@@ -423,7 +423,7 @@ namespace ArcGISClaude.UI
             }
 
             double minTotal = 0;
-            var grid = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch };
+            var grid = new Grid();
             for (int c = 0; c < cols; c++)
             {
                 grid.ColumnDefinitions.Add(new ColumnDefinition
@@ -434,6 +434,10 @@ namespace ArcGISClaude.UI
                 minTotal += colMin[c];
             }
             grid.MinWidth = minTotal;
+            // Start bounded so the first (infinite-width) measure inside the
+            // ScrollViewer doesn't lay every cell out unwrapped; the SizeChanged
+            // handler below raises it to the scroller width on the first pass.
+            grid.Width = minTotal;
 
             for (int r = 0; r < rows.Count; r++)
                 grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -464,7 +468,6 @@ namespace ArcGISClaude.UI
             {
                 Child = grid,
                 BorderThickness = new Thickness(1, 1, 0, 0), // top + left; cells draw right + bottom
-                HorizontalAlignment = HorizontalAlignment.Stretch,
             };
             outer.SetResourceReference(Border.BorderBrushProperty, "Esri_BorderBrush");
 
@@ -473,24 +476,22 @@ namespace ArcGISClaude.UI
                 Content = outer,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
-                HorizontalAlignment = HorizontalAlignment.Stretch,
                 Margin = new Thickness(0, 4, 0, 4),
             };
             // ScrollViewer measures its child at infinite width, so Star columns
-            // would never wrap. Pin the grid to the presenter/scroller width (or
-            // the word-min total if larger) so columns fill the table when they
-            // fit, and an H-bar appears only when unbreakable content overflows.
-            void PinWidth()
+            // would never wrap. Pin the grid to the viewport (or the word-min
+            // total if larger) so columns fill the table when they fit, and an
+            // H-bar appears only when unbreakable content overflows. `outer`'s
+            // border sits between grid and viewport, so its thickness comes off
+            // the top: pin to the full width and the extent is always wider than
+            // the viewport, which shows an H-bar under every table. SizeChanged
+            // fires on the first layout pass (0 -> N), so no Loaded hook needed.
+            double chrome = outer.BorderThickness.Left + outer.BorderThickness.Right;
+            scroller.SizeChanged += (s, e) =>
             {
-                double avail = scroller.ActualWidth;
-                if (avail <= 0) avail = ActualWidth;
-                if (avail <= 0) return;
-                double w = Math.Max(avail, minTotal);
-                if (double.IsNaN(grid.Width) || Math.Abs(grid.Width - w) > 0.5)
-                    grid.Width = w;
-            }
-            scroller.Loaded += (s, e) => PinWidth();
-            scroller.SizeChanged += (s, e) => PinWidth();
+                double avail = scroller.ViewportWidth - chrome;
+                if (avail > 0) grid.Width = Math.Max(avail, minTotal);
+            };
             return scroller;
         }
 
