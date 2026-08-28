@@ -491,7 +491,6 @@ namespace ArcGISClaude.UI
             }
             scroller.Loaded += (s, e) => PinWidth();
             scroller.SizeChanged += (s, e) => PinWidth();
-            SizeChanged += (s, e) => PinWidth();
             return scroller;
         }
 
