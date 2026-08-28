@@ -562,37 +562,55 @@ namespace ArcGISClaude.UI
             return scroller;
         }
 
-        /// <summary>Widest whitespace-delimited token in a cell, plus horizontal padding.</summary>
-        private static double MinWordWidth(List<Inline> inlines, FontWeight weight)
+        /// <summary>
+        /// Widest whitespace-delimited token in a cell, plus horizontal padding.
+        /// Walks inlines so <c>code</c> (Consolas) and bold/italic measure at the
+        /// width they actually render, not as default-font plaintext.
+        /// </summary>
+        private static double MinWordWidth(List<Inline> inlines, FontWeight cellWeight)
         {
             const double pad = 10; // TextBlock margin 5+5
-            var text = PlainText(inlines);
-            if (string.IsNullOrWhiteSpace(text)) return 24 + pad;
             double max = 0;
-            foreach (var word in text.Split((char[])null, StringSplitOptions.RemoveEmptyEntries))
-            {
-                var tb = new TextBlock { Text = word, FontWeight = weight };
-                tb.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-                if (tb.DesiredSize.Width > max) max = tb.DesiredSize.Width;
-            }
-            return max + pad;
+            MeasureInlines(inlines, null, cellWeight, FontStyles.Normal, ref max);
+            return (max <= 0 ? 24 : max) + pad;
         }
 
-        private static string PlainText(IEnumerable<Inline> inlines)
-        {
-            var sb = new StringBuilder();
-            AppendPlain(inlines, sb);
-            return sb.ToString();
-        }
-
-        private static void AppendPlain(IEnumerable<Inline> inlines, StringBuilder sb)
+        private static void MeasureInlines(IEnumerable<Inline> inlines, FontFamily family, FontWeight weight, FontStyle style, ref double max)
         {
             if (inlines == null) return;
             foreach (var inl in inlines)
             {
-                if (inl is Run r) sb.Append(r.Text);
-                else if (inl is LineBreak) sb.Append(' ');
-                else if (inl is Span s) AppendPlain(s.Inlines, sb);
+                var nextFamily = LocalOr(inl, TextElement.FontFamilyProperty, family);
+                var nextWeight = LocalOr(inl, TextElement.FontWeightProperty, weight);
+                var nextStyle = LocalOr(inl, TextElement.FontStyleProperty, style);
+
+                if (inl is Run r)
+                    MeasureWords(r.Text, nextFamily, nextWeight, nextStyle, ref max);
+                else if (inl is Span s)
+                    MeasureInlines(s.Inlines, nextFamily, nextWeight, nextStyle, ref max);
+            }
+        }
+
+        private static T LocalOr<T>(DependencyObject d, DependencyProperty prop, T fallback)
+        {
+            var v = d.ReadLocalValue(prop);
+            return v == DependencyProperty.UnsetValue ? fallback : (T)v;
+        }
+
+        private static void MeasureWords(string text, FontFamily family, FontWeight weight, FontStyle style, ref double max)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            foreach (var word in text.Split((char[])null, StringSplitOptions.RemoveEmptyEntries))
+            {
+                var tb = new TextBlock
+                {
+                    Text = word,
+                    FontWeight = weight,
+                    FontStyle = style,
+                };
+                if (family != null) tb.FontFamily = family;
+                tb.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                if (tb.DesiredSize.Width > max) max = tb.DesiredSize.Width;
             }
         }
 
