@@ -180,14 +180,16 @@ namespace ArcGISClaude
 
         // ---- event rendering (marshalled to the UI thread) --------------------
 
-        private void OnEngineEvent(int epoch, JObject ev)
+        private void PostUi(int epoch, Action action)
         {
             _ui.BeginInvoke(new Action(() =>
             {
                 if (epoch != _engineEpoch) return;
-                HandleEvent(ev);
+                action();
             }));
         }
+
+        private void OnEngineEvent(int epoch, JObject ev) => PostUi(epoch, () => HandleEvent(ev));
 
         private void HandleEvent(JObject ev)
         {
@@ -233,7 +235,7 @@ namespace ArcGISClaude
         {
             var text = StreamJsonReader.JoinedText(ev);
             if (!string.IsNullOrEmpty(text))
-                Items.Add(new AssistantMessageVm { Text = text });
+                Items.Add(new AssistantMessageVm(text));
 
             foreach (var tu in StreamJsonReader.ToolUseBlocks(ev))
             {
@@ -278,9 +280,8 @@ namespace ArcGISClaude
 
         private void OnEngineExited(int epoch, int code)
         {
-            _ui.BeginInvoke(new Action(() =>
+            PostUi(epoch, () =>
             {
-                if (epoch != _engineEpoch) return;
                 IsTurnActive = false;
                 StatusText = "Engine stopped.";
                 if (code == 0) return;
@@ -290,7 +291,7 @@ namespace ArcGISClaude
                 var msg = $"Claude engine exited (code {code}).";
                 if (!string.IsNullOrWhiteSpace(tail)) msg += "\n" + tail;
                 Items.Add(new SystemNoticeVm(msg));
-            }));
+            });
         }
     }
 }

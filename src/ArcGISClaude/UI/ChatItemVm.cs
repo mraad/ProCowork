@@ -30,21 +30,11 @@ namespace ArcGISClaude.UI
         public UserMessageVm(string text) => Text = text;
     }
 
-    /// <summary>Assistant prose. Holds raw Markdown from the engine; the panel renders
-    /// <see cref="Html"/> (Markdown converted to HTML) via HtmlPresenter.</summary>
+    /// <summary>Assistant prose. Markdown is converted once; the panel binds <see cref="Html"/>.</summary>
     internal sealed class AssistantMessageVm : ChatItemVm
     {
-        private string _text;
-        private string _html;
-        public string Text
-        {
-            get => _text;
-            set { if (Set(ref _text, value)) { _html = null; Raise(nameof(Html)); } }
-        }
-
-        // Converted lazily and cached: WPF reads Html more than once per bind
-        // (measure/arrange), and the Markdown→HTML pass is pure for a fixed Text.
-        public string Html => _html ??= MarkdownToHtml.Convert(_text);
+        public AssistantMessageVm(string markdown) => Html = MarkdownToHtml.Convert(markdown);
+        public string Html { get; }
     }
 
     /// <summary>System/connection notices and surfaced errors.</summary>

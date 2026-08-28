@@ -9,14 +9,8 @@ namespace ArcGISClaude.UI
     internal sealed class ToolCallVm : ChatItemVm
     {
         public string ToolName { get; }
-
-        private string _code;
-        public string Code
-        {
-            get => _code;
-            set { if (Set(ref _code, value)) Raise(nameof(HasCode)); }
-        }
-        public bool HasCode => !string.IsNullOrEmpty(_code);
+        public string Code { get; }
+        public bool HasCode => !string.IsNullOrEmpty(Code);
 
         private string _status = "running…";
         public string Status { get => _status; set => Set(ref _status, value); }
@@ -32,7 +26,7 @@ namespace ArcGISClaude.UI
         public ToolCallVm(string fullName, string code)
         {
             ToolName = Engine.StreamJsonReader.ShortToolName(fullName);
-            _code = code;
+            Code = code;
         }
     }
 }

@@ -25,7 +25,7 @@ namespace ArcGISClaude
             _this ??= (Module1)FrameworkApplication.FindModule("ArcGISClaude_Module");
 
         public AppPaths Paths { get; private set; }
-        public BridgeService Bridge { get; private set; }
+        private BridgeService _bridge;
 
         protected override bool Initialize()
         {
@@ -37,10 +37,10 @@ namespace ArcGISClaude
             // The bridge is fully automatic: it comes up with the add-in and lives the
             // whole session, so the user never starts/stops it and it can't go stale.
             // Start it first so its loopback port is known before we write .mcp.json.
-            Bridge = new BridgeService(Paths);
-            Bridge.Start();
+            _bridge = new BridgeService(Paths);
+            _bridge.Start();
 
-            Paths.EnsureWorkspace(Bridge.Port, Bridge.Token);
+            Paths.EnsureWorkspace(_bridge.Port, _bridge.Token);
 
             return true;
         }
@@ -54,7 +54,7 @@ namespace ArcGISClaude
             try { ChatDockPaneViewModel.ShutdownInstance(); } catch { }
             // Stops the listener; the engine's next request gets connection-refused
             // the moment Pro shuts down.
-            try { Bridge?.Dispose(); } catch { }
+            try { _bridge?.Dispose(); } catch { }
             base.Uninitialize();
         }
 
