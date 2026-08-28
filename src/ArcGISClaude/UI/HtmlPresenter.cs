@@ -502,56 +502,109 @@ namespace ArcGISClaude.UI
             return scroller;
         }
 
+        /// <summary>Font a cell's text will actually render in, inherited down the inline tree.</summary>
+        private struct FontCtx
+        {
+            public FontFamily Family;
+            public double Size;
+            public FontWeight Weight;
+            public FontStyle Style;
+            public FontStretch Stretch;
+        }
+
         /// <summary>
-        /// Widest whitespace-delimited token in a cell, plus horizontal padding.
-        /// Measured in the font the cell itself will inherit from the presenter — a
-        /// bare TextBlock measures at the system default, which underestimates the
-        /// themed font and lets a column come out narrower than its own longest
-        /// word, so the text breaks mid-word ("Kingdo|m") once a table is squeezed
-        /// to its minimum. Inline code runs (Consolas) are still measured in the
-        /// body font; they keep the inherited size, so the error is small.
+        /// Widest whitespace-delimited token in a cell, plus horizontal padding —
+        /// the floor below which a column would wrap inside its own longest word.
+        ///
+        /// Both halves of the font matter. The walk starts from what the cell
+        /// inherits from the presenter (measuring at the system default instead
+        /// underestimates the themed font, so text breaks mid-word — "Kingdo|m"),
+        /// and each inline then overrides what it sets locally, so a Consolas
+        /// code run or a bold/italic span measures at the width it renders. A
+        /// token split across runs (<c>**bold**text</c>) accumulates across them
+        /// rather than counting as two shorter words.
         /// </summary>
-        private double MinWordWidth(List<Inline> inlines, FontWeight weight)
+        private double MinWordWidth(List<Inline> inlines, FontWeight cellWeight)
         {
             const double pad = 10; // TextBlock margin 5+5
-            var text = PlainText(inlines);
-            if (string.IsNullOrWhiteSpace(text)) return 24 + pad;
 
-            // One probe reused across words — setting Text invalidates its measure.
-            var probe = new TextBlock
+            var seed = new FontCtx
             {
-                FontWeight = weight,
-                FontFamily = TextElement.GetFontFamily(this),
-                FontSize = TextElement.GetFontSize(this),
-                FontStyle = TextElement.GetFontStyle(this),
-                FontStretch = TextElement.GetFontStretch(this),
+                Family = TextElement.GetFontFamily(this),
+                Size = TextElement.GetFontSize(this),
+                Weight = cellWeight,
+                Style = TextElement.GetFontStyle(this),
+                Stretch = TextElement.GetFontStretch(this),
             };
-            double max = 0;
-            foreach (var word in text.Split((char[])null, StringSplitOptions.RemoveEmptyEntries))
+
+            var segs = new List<KeyValuePair<string, FontCtx>>();
+            Flatten(inlines, seed, segs);
+
+            // One probe reused across every measurement — assigning any of these
+            // invalidates its measure, so each call re-measures.
+            var probe = new TextBlock();
+            double max = 0, token = 0;
+            foreach (var seg in segs)
             {
-                probe.Text = word;
-                probe.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-                if (probe.DesiredSize.Width > max) max = probe.DesiredSize.Width;
+                var text = seg.Key;
+                int i = 0;
+                while (i < text.Length)
+                {
+                    if (char.IsWhiteSpace(text[i]))
+                    {
+                        if (token > max) max = token;   // whitespace closes the token
+                        token = 0;
+                        i++;
+                        continue;
+                    }
+                    int start = i;
+                    while (i < text.Length && !char.IsWhiteSpace(text[i])) i++;
+                    token += Measure(probe, text.Substring(start, i - start), seg.Value);
+                }
             }
-            return max + pad;
+            if (token > max) max = token;               // token running to the end
+
+            return (max <= 0 ? 24 : max) + pad;
         }
 
-        private static string PlainText(IEnumerable<Inline> inlines)
-        {
-            var sb = new StringBuilder();
-            AppendPlain(inlines, sb);
-            return sb.ToString();
-        }
-
-        private static void AppendPlain(IEnumerable<Inline> inlines, StringBuilder sb)
+        private static void Flatten(IEnumerable<Inline> inlines, FontCtx ctx, List<KeyValuePair<string, FontCtx>> segs)
         {
             if (inlines == null) return;
             foreach (var inl in inlines)
             {
-                if (inl is Run r) sb.Append(r.Text);
-                else if (inl is LineBreak) sb.Append(' ');
-                else if (inl is Span s) AppendPlain(s.Inlines, sb);
+                var next = ctx;
+                next.Family = LocalOr(inl, TextElement.FontFamilyProperty, ctx.Family);
+                next.Size = LocalOr(inl, TextElement.FontSizeProperty, ctx.Size);
+                next.Weight = LocalOr(inl, TextElement.FontWeightProperty, ctx.Weight);
+                next.Style = LocalOr(inl, TextElement.FontStyleProperty, ctx.Style);
+                next.Stretch = LocalOr(inl, TextElement.FontStretchProperty, ctx.Stretch);
+
+                if (inl is Run r) segs.Add(new KeyValuePair<string, FontCtx>(r.Text, next));
+                else if (inl is LineBreak) segs.Add(new KeyValuePair<string, FontCtx>(" ", next)); // closes a token
+                else if (inl is Span s) Flatten(s.Inlines, next, segs);
             }
+        }
+
+        /// <summary>The inline's own value for a font property, or the inherited one.</summary>
+        private static T LocalOr<T>(DependencyObject d, DependencyProperty prop, T fallback)
+        {
+            var v = d.ReadLocalValue(prop);
+            return v is T local ? local : fallback;
+        }
+
+        private static double Measure(TextBlock probe, string text, FontCtx ctx)
+        {
+            // Assign every property unconditionally: the probe is shared across
+            // segments, so skipping one would leave the previous segment's font
+            // in place (a Consolas code run bleeding into the words after it).
+            probe.Text = text;
+            probe.FontWeight = ctx.Weight;
+            probe.FontStyle = ctx.Style;
+            probe.FontStretch = ctx.Stretch;
+            probe.FontFamily = ctx.Family ?? SystemFonts.MessageFontFamily;
+            probe.FontSize = ctx.Size > 0 ? ctx.Size : SystemFonts.MessageFontSize;
+            probe.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            return probe.DesiredSize.Width;
         }
 
         private FrameworkElement MakeBlockquote(List<Tok> toks, ref int i)
