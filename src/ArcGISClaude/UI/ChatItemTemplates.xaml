@@ -18,7 +18,7 @@
     <DataTemplate DataType="{x:Type ui:AssistantMessageVm}">
         <Border Margin="4,4,40,4" Padding="8" CornerRadius="6"
                 Background="{DynamicResource Esri_BackgroundPressedBrush}"
-                HorizontalAlignment="Left">
+                HorizontalAlignment="Stretch">
             <ui:HtmlPresenter Html="{Binding Html}" />
         </Border>
     </DataTemplate>

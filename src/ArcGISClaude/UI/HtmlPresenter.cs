@@ -8,7 +8,6 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Media;
-using System.Windows.Threading;
 
 namespace ArcGISClaude.UI
 {
@@ -23,8 +22,7 @@ namespace ArcGISClaude.UI
     /// (i/em), strikethrough (del/s), inline code (code), code blocks (pre), lists
     /// (ul/ol/li, including nesting), blockquotes, links (a), and tables
     /// (table/tr/th/td). The tokenizer is deliberately tolerant: malformed or
-    /// half-streamed HTML (unclosed tags) degrades gracefully instead of throwing,
-    /// because <see cref="Html"/> is re-rendered on every streaming update.
+    /// half-streamed HTML (unclosed tags) degrades gracefully instead of throwing.
     /// </summary>
     internal sealed class HtmlPresenter : Border
     {
@@ -42,12 +40,6 @@ namespace ArcGISClaude.UI
         // open a new element in the vertical stack.
         private static readonly HashSet<string> BlockTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         { "h1","h2","h3","h4","h5","h6","p","pre","ul","ol","li","table","thead","tbody","tr","td","th","div","blockquote","hr" };
-
-        // Tags whose open/close markers are skipped (content flows straight into
-        // the surrounding run) rather than ending it — Markdig wraps "loose" list
-        // item text in <p>, which would otherwise look like a block boundary.
-        private static readonly HashSet<string> ListItemTransparentTags =
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "p" };
 
         private static readonly Regex TagRx = new Regex(
             @"<(?<close>/?)(?<name>[a-zA-Z][a-zA-Z0-9]*)(?<attrs>[^>]*?)/?>",
@@ -96,18 +88,8 @@ namespace ArcGISClaude.UI
         // --------------------------------------------------------------------- //
         //  block-level walk
         // --------------------------------------------------------------------- //
-        // Render rebuilds the visual tree on every Html update (streaming). Code
-        // blocks keep a ScrollViewer; without this, each rebuild resets the offset.
-        private struct CodeScroll
-        {
-            public double Offset;
-            public double HorizOffset;
-            public bool StickToBottom;
-        }
-
         private void Render(string html)
         {
-            var saved = CaptureCodeScrolls();
             var panel = new StackPanel();
             if (!string.IsNullOrEmpty(html))
             {
@@ -116,61 +98,6 @@ namespace ArcGISClaude.UI
                 ParseBlocks(toks, ref i, panel, null);
             }
             Child = panel;
-            RestoreCodeScrolls(saved);
-        }
-
-        private List<CodeScroll> CaptureCodeScrolls()
-        {
-            var list = new List<CodeScroll>();
-            CollectScrollViewers(Child, list, null);
-            return list;
-        }
-
-        private void RestoreCodeScrolls(List<CodeScroll> saved)
-        {
-            if (saved.Count == 0 || Child == null) return;
-            var viewers = new List<ScrollViewer>();
-            CollectScrollViewers(Child, null, viewers);
-            int n = Math.Min(viewers.Count, saved.Count);
-            if (n == 0) return;
-            Dispatcher.BeginInvoke(new Action(() =>
-            {
-                for (int i = 0; i < n; i++)
-                {
-                    if (saved[i].StickToBottom) viewers[i].ScrollToBottom();
-                    else viewers[i].ScrollToVerticalOffset(saved[i].Offset);
-                    viewers[i].ScrollToHorizontalOffset(saved[i].HorizOffset);
-                }
-            }), DispatcherPriority.Loaded);
-        }
-
-        private static void CollectScrollViewers(DependencyObject d, List<CodeScroll> states, List<ScrollViewer> viewers)
-        {
-            if (d == null) return;
-            if (d is ScrollViewer sv)
-            {
-                if (states != null)
-                {
-                    bool stick = sv.ScrollableHeight <= 0.5
-                                 || sv.VerticalOffset >= sv.ScrollableHeight - 1.0;
-                    states.Add(new CodeScroll
-                    {
-                        Offset = sv.VerticalOffset,
-                        HorizOffset = sv.HorizontalOffset,
-                        StickToBottom = stick,
-                    });
-                }
-                if (viewers != null) viewers.Add(sv);
-                return;
-            }
-            if (d is Panel p)
-            {
-                foreach (UIElement c in p.Children)
-                    CollectScrollViewers(c, states, viewers);
-                return;
-            }
-            if (d is Border b)
-                CollectScrollViewers(b.Child, states, viewers);
         }
 
         private void ParseBlocks(List<Tok> toks, ref int i, StackPanel panel, string stopTag)
@@ -242,7 +169,7 @@ namespace ArcGISClaude.UI
         // --------------------------------------------------------------------- //
         //  inline-level walk
         // --------------------------------------------------------------------- //
-        private List<Inline> CollectInlines(List<Tok> toks, ref int i, string stopTag, HashSet<string> transparent = null)
+        private List<Inline> CollectInlines(List<Tok> toks, ref int i, string stopTag)
         {
             var result = new List<Inline>();
             while (i < toks.Count)
@@ -257,7 +184,8 @@ namespace ArcGISClaude.UI
 
                 if (tok.IsTag)
                 {
-                    if (transparent != null && transparent.Contains(tok.Name)) { i++; continue; }
+                    // Markdig wraps loose list-item text in <p>; skip the tag, keep the text.
+                    if (stopTag == "li" && tok.Name == "p") { i++; continue; }
 
                     // A block-level open tag ends this inline run — leave it for the
                     // block parser (don't consume it).
@@ -382,16 +310,14 @@ namespace ArcGISClaude.UI
 
         /// <summary>
         /// Parse one &lt;li&gt;'s body: an inline text line, plus an optional nested
-        /// &lt;ul&gt;/&lt;ol&gt; rendered indented beneath it. Markdig wraps "loose" list
-        /// item text in &lt;p&gt; — <see cref="ListItemTransparentTags"/> makes that
-        /// transparent instead of ending the line early.
+        /// &lt;ul&gt;/&lt;ol&gt; rendered indented beneath it.
         /// </summary>
         private FrameworkElement ParseListItem(List<Tok> toks, ref int i, string prefix)
         {
             var itemPanel = new StackPanel();
             while (true)
             {
-                var inlines = CollectInlines(toks, ref i, "li", ListItemTransparentTags);
+                var inlines = CollectInlines(toks, ref i, "li");
                 if (inlines.Count > 0 || prefix != null)
                 {
                     itemPanel.Children.Add(MakeText(inlines, 0, FontWeights.Normal, 14, prefix));
@@ -497,7 +423,7 @@ namespace ArcGISClaude.UI
             }
 
             double minTotal = 0;
-            var grid = new Grid();
+            var grid = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch };
             for (int c = 0; c < cols; c++)
             {
                 grid.ColumnDefinitions.Add(new ColumnDefinition
@@ -508,7 +434,6 @@ namespace ArcGISClaude.UI
                 minTotal += colMin[c];
             }
             grid.MinWidth = minTotal;
-            grid.Width = minTotal; // SizeChanged raises this to the viewport when it fits
 
             for (int r = 0; r < rows.Count; r++)
                 grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -539,6 +464,7 @@ namespace ArcGISClaude.UI
             {
                 Child = grid,
                 BorderThickness = new Thickness(1, 1, 0, 0), // top + left; cells draw right + bottom
+                HorizontalAlignment = HorizontalAlignment.Stretch,
             };
             outer.SetResourceReference(Border.BorderBrushProperty, "Esri_BorderBrush");
 
@@ -547,18 +473,24 @@ namespace ArcGISClaude.UI
                 Content = outer,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
                 Margin = new Thickness(0, 4, 0, 4),
             };
             // ScrollViewer measures its child at infinite width, so Star columns
-            // would never wrap. Pin the grid to the viewport (or the word-min
-            // total if that's larger) so headers wrap on words and an H-bar
-            // appears only when unbreakable content exceeds the panel.
-            scroller.SizeChanged += (s, e) =>
+            // would never wrap. Pin the grid to the presenter/scroller width (or
+            // the word-min total if larger) so columns fill the table when they
+            // fit, and an H-bar appears only when unbreakable content overflows.
+            void PinWidth()
             {
-                double view = scroller.ViewportWidth;
-                if (view <= 0) return;
-                grid.Width = Math.Max(view, minTotal);
-            };
+                double avail = scroller.ActualWidth;
+                if (avail <= 0) avail = ActualWidth;
+                if (avail <= 0) return;
+                double w = Math.Max(avail, minTotal);
+                if (double.IsNaN(grid.Width) || Math.Abs(grid.Width - w) > 0.5)
+                    grid.Width = w;
+            }
+            scroller.Loaded += (s, e) => PinWidth();
+            scroller.SizeChanged += (s, e) => PinWidth();
             return scroller;
         }
 

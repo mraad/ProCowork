@@ -18,16 +18,11 @@ namespace ArcGISClaude.Engine
             switch (s.AuthMode)
             {
                 case AuthMode.Subscription:
-                    Remove("ANTHROPIC_API_KEY");
-                    Remove("ANTHROPIC_AUTH_TOKEN");
-                    Remove("CLAUDE_CODE_OAUTH_TOKEN");
-                    break;
-
                 case AuthMode.OAuthToken:
                     Remove("ANTHROPIC_API_KEY");
                     Remove("ANTHROPIC_AUTH_TOKEN");
                     Remove("CLAUDE_CODE_OAUTH_TOKEN");
-                    if (!string.IsNullOrEmpty(s.OAuthToken))
+                    if (s.AuthMode == AuthMode.OAuthToken && !string.IsNullOrEmpty(s.OAuthToken))
                         psi.Environment["CLAUDE_CODE_OAUTH_TOKEN"] = s.OAuthToken;
                     break;
 

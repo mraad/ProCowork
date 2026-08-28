@@ -140,8 +140,6 @@ namespace ArcGISClaude
             _engine.Exited += _onExited;
             _engine.Start(EngineSettings.Current);
             _sessionAnnounced = false;  // new session -> announce once on its first init
-            // The ArcPy bridge is owned by Module1 and runs automatically for the
-            // whole Pro session — nothing to start here.
         }
 
         private async Task OnSendAsync()
@@ -166,7 +164,7 @@ namespace ArcGISClaude
                 // send-failure or clear IsTurnActive for a newer session.
                 // EnsureEngine itself throwing leaves epoch null — always surface that.
                 if (epoch is int e && e != _engineEpoch) return;
-                Items.Add(new SystemNoticeVm("Failed to send: " + ex.Message, true));
+                Items.Add(new SystemNoticeVm("Failed to send: " + ex.Message));
                 IsTurnActive = false;
             }
         }
@@ -182,14 +180,16 @@ namespace ArcGISClaude
 
         // ---- event rendering (marshalled to the UI thread) --------------------
 
-        private void OnEngineEvent(int epoch, JObject ev)
+        private void PostUi(int epoch, Action action)
         {
             _ui.BeginInvoke(new Action(() =>
             {
                 if (epoch != _engineEpoch) return;
-                HandleEvent(ev);
+                action();
             }));
         }
+
+        private void OnEngineEvent(int epoch, JObject ev) => PostUi(epoch, () => HandleEvent(ev));
 
         private void HandleEvent(JObject ev)
         {
@@ -208,7 +208,7 @@ namespace ArcGISClaude
                     IsTurnActive = false;
                     var sub = StreamJsonReader.Subtype(ev);
                     if (!string.IsNullOrEmpty(sub) && sub != "success")
-                        Items.Add(new SystemNoticeVm("Turn ended: " + sub, true));
+                        Items.Add(new SystemNoticeVm("Turn ended: " + sub));
                     break;
             }
         }
@@ -235,7 +235,7 @@ namespace ArcGISClaude
         {
             var text = StreamJsonReader.JoinedText(ev);
             if (!string.IsNullOrEmpty(text))
-                Items.Add(new AssistantMessageVm { Text = text });
+                Items.Add(new AssistantMessageVm(text));
 
             foreach (var tu in StreamJsonReader.ToolUseBlocks(ev))
             {
@@ -258,7 +258,6 @@ namespace ArcGISClaude
                 if (id != null && _toolsById.TryGetValue(id, out var vm))
                 {
                     vm.Result = text;
-                    vm.IsError = isErr;
                     vm.Status = isErr ? "error" : "done";
                 }
             }
@@ -281,9 +280,8 @@ namespace ArcGISClaude
 
         private void OnEngineExited(int epoch, int code)
         {
-            _ui.BeginInvoke(new Action(() =>
+            PostUi(epoch, () =>
             {
-                if (epoch != _engineEpoch) return;
                 IsTurnActive = false;
                 StatusText = "Engine stopped.";
                 if (code == 0) return;
@@ -292,8 +290,8 @@ namespace ArcGISClaude
                 lock (_stderrTail) tail = string.Join("\n", _stderrTail);
                 var msg = $"Claude engine exited (code {code}).";
                 if (!string.IsNullOrWhiteSpace(tail)) msg += "\n" + tail;
-                Items.Add(new SystemNoticeVm(msg, true));
-            }));
+                Items.Add(new SystemNoticeVm(msg));
+            });
         }
     }
 }
