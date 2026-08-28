@@ -46,22 +46,27 @@
                           IsChecked="{Binding ShowToolOutputs}"
                           ToolTip="Show the tool calls Claude makes (generated code and results)." />
                 <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
 
-                <TextBox Grid.Column="0"
-                         Text="{Binding Input, UpdateSourceTrigger=PropertyChanged}"
-                         AcceptsReturn="True" TextWrapping="Wrap"
-                         MinHeight="48" MaxHeight="140"
-                         VerticalScrollBarVisibility="Auto"
-                         PreviewKeyDown="OnInputPreviewKeyDown"
-                         ToolTip="Describe what you want to do to the open project, then press Enter (Shift+Enter for a new line)." />
+                    <TextBox Grid.Column="0"
+                             Text="{Binding Input, UpdateSourceTrigger=PropertyChanged}"
+                             AcceptsReturn="True" TextWrapping="Wrap"
+                             MinHeight="48" MaxHeight="140"
+                             VerticalScrollBarVisibility="Auto"
+                             PreviewKeyDown="OnInputPreviewKeyDown"
+                             ToolTip="Describe what you want to do to the open project, then press Enter (Shift+Enter for a new line)." />
 
-                <Button Grid.Column="1" Content="Send" MinWidth="64" Margin="6,0,0,0"
-                        Style="{DynamicResource Esri_Button}"
-                        Command="{Binding SendCommand}" />
+                    <Button Grid.Column="1" Content="Send" MinWidth="64" Margin="6,0,0,0"
+                            Style="{DynamicResource Esri_Button}"
+                            Command="{Binding SendCommand}" />
+                    <Button Grid.Column="2" Content="Stop" MinWidth="64" Margin="6,0,0,0"
+                            Style="{DynamicResource Esri_Button}"
+                            Command="{Binding StopCommand}"
+                            ToolTip="Stop the current turn and kill the Claude engine. The next message starts a new session." />
                 </Grid>
             </StackPanel>
         </Border>

@@ -181,37 +181,14 @@ namespace ArcGISClaude.Engine
         }
 
         /// <summary>
-        /// User-initiated stop: close stdin (EOF ends the session) and give the
-        /// process a short grace period off-thread before killing its tree. The
-        /// wait must not run on the caller (UI) thread — it would freeze the panel
-        /// for up to the full grace period.
-        /// </summary>
-        public void Stop()
-        {
-            try { _stdin?.Close(); } catch { }      // EOF on stdin ends the session
-            var proc = _proc;
-            if (proc == null) return;
-            _ = Task.Run(() =>
-            {
-                // Broad catch: the process may exit on its own, already be dead, or
-                // be disposed by a later EnsureEngine respawn while we wait — all
-                // benign outcomes for a stop request.
-                try
-                {
-                    if (!proc.WaitForExit(1500))
-                        proc.Kill(true);
-                }
-                catch { }
-            });
-        }
-
-        /// <summary>
-        /// Teardown (respawn or Pro shutdown): kill the whole child tree immediately
-        /// — no grace period, so the claude process tree cannot outlive Pro.
+        /// Teardown (user Stop, respawn, or Pro shutdown): kill the whole child
+        /// tree immediately — no grace period, so the claude process tree cannot
+        /// outlive Pro, and a later EnsureEngine cannot send on a dying stdin.
         /// </summary>
         public void Dispose()
         {
             try { _stdin?.Close(); } catch { }
+            _stdin = null;
             try
             {
                 if (_proc != null && !_proc.HasExited)
@@ -219,6 +196,7 @@ namespace ArcGISClaude.Engine
             }
             catch { }
             try { _proc?.Dispose(); } catch { }
+            _proc = null;
         }
     }
 }

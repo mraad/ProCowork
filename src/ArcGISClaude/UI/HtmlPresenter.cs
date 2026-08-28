@@ -56,6 +56,8 @@ namespace ArcGISClaude.UI
             @"href\s*=\s*(?:""(?<u>[^""]*)""|'(?<u>[^']*)'|(?<u>[^\s>]+))",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+        private static readonly FontFamily CodeFont = new FontFamily("Consolas");
+
         // --------------------------------------------------------------------- //
         //  tokenizer
         // --------------------------------------------------------------------- //
@@ -212,7 +214,7 @@ namespace ArcGISClaude.UI
                             AddSpan(result, new Span { TextDecorations = TextDecorations.Strikethrough }, CollectInlines(toks, ref i, name));
                             break;
                         case "code":
-                            var code = new Run(CollectText(toks, ref i, "code")) { FontFamily = new FontFamily("Consolas") };
+                            var code = new Run(CollectText(toks, ref i, "code")) { FontFamily = CodeFont };
                             code.SetResourceReference(TextElement.BackgroundProperty, "Esri_BackgroundPressedBrush");
                             result.Add(code);
                             break;
@@ -475,7 +477,7 @@ namespace ArcGISClaude.UI
             var tb = new TextBlock
             {
                 Text = code,
-                FontFamily = new FontFamily("Consolas"),
+                FontFamily = CodeFont,
                 FontSize = 11,
                 TextWrapping = TextWrapping.NoWrap,
             };
@@ -483,7 +485,7 @@ namespace ArcGISClaude.UI
             {
                 Content = tb,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 MaxHeight = 260,
             };
             var border = new Border
