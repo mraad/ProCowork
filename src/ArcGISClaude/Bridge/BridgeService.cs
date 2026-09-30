@@ -324,9 +324,12 @@ namespace ArcGISClaude.Bridge
             }
             else if (ok)
             {
-                text = data == null || data.Type == JTokenType.Null
-                    ? "ok"
-                    : data.ToString(Newtonsoft.Json.Formatting.None); // compact — fewer tokens in context
+                // RunScript omits empty parts, so code that neither printed nor set
+                // `result` comes back as {} — say what that means instead.
+                if (data == null || data.Type == JTokenType.Null) text = "ok";
+                else if (data is JObject empty && !empty.HasValues)
+                    text = "ok (no output — assign to `result` or print() to return data)";
+                else text = data.ToString(Newtonsoft.Json.Formatting.None); // compact — fewer tokens in context
                 isError = false;
             }
             else

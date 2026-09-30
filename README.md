@@ -64,6 +64,13 @@ code — so there's no daemon to outlive its host. The centerpiece tool is
 **`run_python_current(code)`** (arbitrary ArcPy on the live map); curated tools
 (`list_layers`, `add_field`, `search_cursor`, …) ride the same bridge.
 
+The tools are selection-aware the way Pro is: `list_layers` reports each layer's
+current selection and definition query, and the data tools take `selected_only` so
+"calculate this for the selected parcels" touches the selected parcels — while a
+data-source path always means the whole dataset. `run_geoprocessing` can add its
+outputs to the map (including `memory\` intermediates), and `describe_layer` reports
+the spatial reference's type and unit so distance/area math is done in the right units.
+
 The bridge's loopback port is ephemeral (chosen at startup) and handed to the engine as an
 HTTP MCP server URL in the generated `.mcp.json`. It starts **automatically** with the
 add-in — there's no button to press and nothing to keep alive.
@@ -190,12 +197,13 @@ src/ArcGISClaude/
   Python/                     RunScript.pyt (per-call ArcPy executor)
   Workspace/CLAUDE.md         "Claude's own file" — the embedded assistant's instructions
                               (authoritative; re-seeded to the user workspace when it changes)
+  Workspace/reference/        on-demand ArcPy recipe sheets it points at (mapping.md, data.md)
   Images/                     ribbon icons (placeholders — replace with real art)
 ```
 
 Runtime workspace (engine cwd): `%USERPROFILE%\Documents\ArcGIS\ClaudeWorkspace\` — holds
-`CLAUDE.md` (re-seeded from the shipped template whenever the template changes; edit the
-repo copy, not this one) and the generated `.mcp.json`. The bridge's request/result handoff
+`CLAUDE.md` and `reference\*.md` (re-seeded from the shipped template whenever the template
+changes; edit the repo copies, not these) and the generated `.mcp.json`. The bridge's request/result handoff
 uses geoprocessing string parameters rather than files; diagnostics are written to
 `%USERPROFILE%\.arcgis_claude\bridge.log`.
 

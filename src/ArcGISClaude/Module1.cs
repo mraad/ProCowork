@@ -80,7 +80,6 @@ namespace ArcGISClaude
         public string LogDir { get; private set; }
 
         public string McpConfigPath => Path.Combine(WorkspaceDir, ".mcp.json");
-        public string ClaudeMdPath => Path.Combine(WorkspaceDir, "CLAUDE.md");
         public string RunScriptToolbox => Path.Combine(PythonDir, "RunScript.pyt");
 
         public static AppPaths Create()
@@ -106,15 +105,22 @@ namespace ArcGISClaude
         {
             Directory.CreateDirectory(WorkspaceDir);
 
-            // The shipped template is authoritative: re-seed CLAUDE.md whenever the
-            // workspace copy differs, so template fixes reach existing installs.
+            // The shipped template is authoritative: re-seed every template file
+            // (CLAUDE.md plus the reference/ docs it points at) whenever the workspace
+            // copy differs, so template fixes reach existing installs.
             // (Customizations belong in the repo template, not the workspace copy —
             // edits made directly to the workspace copy are overwritten here.)
-            var claudeTemplate = Path.Combine(AddinDir, "Workspace", "CLAUDE.md");
-            if (File.Exists(claudeTemplate) &&
-                (!File.Exists(ClaudeMdPath) ||
-                 File.ReadAllText(claudeTemplate) != File.ReadAllText(ClaudeMdPath)))
-                File.Copy(claudeTemplate, ClaudeMdPath, overwrite: true);
+            // Copy-only: files the engine or user created in the workspace are left alone.
+            var templateDir = Path.Combine(AddinDir, "Workspace");
+            if (Directory.Exists(templateDir))
+                foreach (var template in Directory.EnumerateFiles(templateDir, "*", SearchOption.AllDirectories))
+                {
+                    var target = Path.Combine(WorkspaceDir, Path.GetRelativePath(templateDir, template));
+                    if (File.Exists(target) && File.ReadAllText(template) == File.ReadAllText(target))
+                        continue;
+                    Directory.CreateDirectory(Path.GetDirectoryName(target));
+                    File.Copy(template, target, overwrite: true);
+                }
 
             // Always (re)generate .mcp.json so the bridge's loopback port + auth
             // token track the current session.

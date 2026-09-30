@@ -89,18 +89,21 @@ namespace ArcGISClaude.Bridge
 
         private Task<IGPResult> RunToolAsync(string requestJson, CancellationToken ct)
         {
-            // GPThread-only: run on the GP thread but DON'T add to the project's
-            // Geoprocessing History or auto-add outputs — internal Claude runs must not
-            // spam the user's history. RunScript's result is a derived GPString, so it
-            // is returned through IGPResult.ReturnValue rather than a handoff file. The
-            // cancel token (timeout) is honoured by the framework; statusCallback is null.
+            // Run on the GP thread but DON'T add to the project's Geoprocessing History
+            // or auto-add outputs — internal Claude runs must not spam the user's
+            // history, and RunScript's only "output" is its result string.
+            // RefreshProjectItems is kept: datasets the generated code creates should
+            // appear in the Catalog pane without the user pressing F5. RunScript's
+            // result is a derived GPString, so it is returned through
+            // IGPResult.ReturnValue rather than a handoff file. The cancel token
+            // (timeout) is honoured by the framework; statusCallback is null.
             return Geoprocessing.ExecuteToolAsync(
                 _toolPath,
                 Geoprocessing.MakeValueArray(requestJson),
                 Array.Empty<KeyValuePair<string, string>>(), // explicit empty env avoids a null-env NRE
                 ct,
                 null,
-                GPExecuteToolFlags.GPThread);
+                GPExecuteToolFlags.GPThread | GPExecuteToolFlags.RefreshProjectItems);
         }
 
         private static JObject Err(string message)
