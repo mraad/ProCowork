@@ -25,7 +25,7 @@ namespace ArcGISClaude.Options
                 var o = JObject.Parse(File.ReadAllText(FilePath));
 
                 if (Enum.TryParse((string)o["authMode"], out AuthMode mode)) s.AuthMode = mode;
-                if (o["model"] != null) s.Model = (string)o["model"];
+                if (o["model"] != null) s.Model = Migrate((string)o["model"]);
                 s.ClaudeExecutablePath = (string)o["claudePath"];
                 s.ActiveSecret = Unprotect((string)o["secret"]); // AuthMode parsed above
                 if (o["searchRowLimit"] != null) s.SearchRowLimit = (int)o["searchRowLimit"];
@@ -52,6 +52,20 @@ namespace ArcGISClaude.Options
             }
             catch { /* best-effort */ }
         }
+
+        /// <summary>
+        /// Model ids this add-in used to offer (or default to) that the API no longer
+        /// serves. A settings file saved by an older build would otherwise pin the
+        /// engine to a dead id; map each to its successor. Anything else is kept as-is,
+        /// since the user may have typed a custom id.
+        /// </summary>
+        private static string Migrate(string model) => model switch
+        {
+            "claude-opus-4-8" => "claude-opus-5-5",
+            "claude-sonnet-5" => "claude-sonnet-5-5",
+            "claude-fable-5" => "claude-fable-5-1",
+            _ => model,
+        };
 
         private static string Protect(string plain)
         {

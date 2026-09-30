@@ -123,7 +123,7 @@ $env:PATH = "$env:ProgramFiles\dotnet;$env:PATH"   # SDK resolver needs dotnet o
 
 The status bar shows the model and that it's using your subscription, and a thin strip
 under it pulses while a request is being worked on. By default the engine
-uses model `claude-opus-4-8`; pick a different one from the **Model** dropdown on
+uses model `claude-opus-5-5`; pick a different one from the **Model** dropdown on
 **Options ▸ ProCowork** (or leave it blank to use Claude Code's own default).
 
 ### Try it
