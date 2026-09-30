@@ -22,6 +22,9 @@ There is no test suite. This is a Windows/ArcGIS Pro SDK project — it does not
   python -c "import ast; ast.parse(open('RunScript.pyt').read()); print('parses OK')"
   ```
 
+### Version bump
+The add-in version lives in two places that must match: `<Version>` in `ArcGISClaude.csproj` (also what `BridgeService` reports as the MCP server version) and `version=` on `<AddInInfo>` in `Config.daml`. Bump both; `desktopVersion` is the *minimum* Pro and stays put.
+
 ### Targeting a different Pro version
 `ArcGISClaude.csproj` targets **Pro 3.7** via `net10.0-windows` + `Esri.ArcGISPro.Extensions30` `3.7.*`. For Pro 3.6 use `net8.0-windows` + `3.6.*`; for 3.5 and earlier, `net6.0-windows`. (`Config.daml`'s `desktopVersion="3.6"` is the *minimum* and stays put.)
 

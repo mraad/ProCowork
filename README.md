@@ -131,7 +131,10 @@ uses model `claude-opus-4-8`; pick a different one from the **Model** dropdown o
 - "Add a DOUBLE field POP_DEN to Parcels and set it to POP / AREASQMI."
 - "Select parcels where POP_DEN > 5000 and zoom to them."
 - "Give me the 5 highest POP_DEN parcels."
+- "Set ZONE to 'R' for the parcels I have selected." — only the selection is touched.
 - "Buffer Roads by 100 meters and add the result to the map."
+- "Symbolize Parcels by POP_DEN with 5 graduated classes and label them by NAME."
+- "Export the current layout to PDF in the project folder."
 
 You'll see Claude's generated ArcPy and its output inline, and the changes appear live in
 the project.
@@ -158,11 +161,14 @@ Configure under **Options ▸ ProCowork**:
 ## Safety
 
 Generated code runs automatically and some edits are irreversible. The bundled `CLAUDE.md`
-instructs Claude to use **edit sessions** (so changes are undoable), **back up** layers
-before destructive ops, and **state row counts** before deletes. To reintroduce an
-approval step, change `PermissionMode` in `EngineSettings` from `bypassPermissions` to
-`acceptEdits` (and add an allow-list) — the architecture supports a future approval card
-without rework.
+instructs Claude to use **edit sessions** (so a failure rolls back), **back up** layers
+before destructive ops, and **state row counts** before deletes. The tools themselves add
+two guards: a data tool asked for `selected_only` **refuses** when nothing is selected
+(rather than quietly hitting every row), and `ping` reports `unsaved_edits` so Claude
+asks you to save or discard Pro's own pending edits before ArcPy writes to the same
+workspace. To reintroduce an approval step, change `PermissionMode` in `EngineSettings`
+from `bypassPermissions` to `acceptEdits` (and add an allow-list) — the architecture
+supports a future approval card without rework.
 
 ---
 
@@ -180,6 +186,15 @@ without rework.
 - **Edits don't appear** — reads and map/selection writes run on Pro's CIM thread and ArcPy
   runs on the foreground GP thread, so edits generally show up live; if a data write doesn't
   refresh, re-run the request or refresh the layer.
+- **It changed every row, not my selection** — a data-source *path* always means the whole
+  dataset; only the live *layer* carries your selection and definition query. Say "the
+  selected …" and Claude uses `selected_only` (or the layer object); `list_layers` shows the
+  selection count so it can tell. Ask for the layer explicitly if it picked the path.
+- **The first request after Pro starts is slow** — Pro initialises its Python toolbox
+  machinery on the first geoprocessing call, which can take a minute or more; later calls
+  take milliseconds. The bridge's 5-minute cap only takes effect once that first tool yields.
+- **"No active map view"** — a layout or the Catalog view is active. Click a map tab, or
+  tell Claude which map to use (`ping` lists them).
 
 ---
 
@@ -215,6 +230,7 @@ MVP. Implemented: add-in shell, headless engine + native Markdown rendering (Mar
 themed WPF: headings, lists, links, code blocks, and real tables — matching Pro's dark and
 light themes), subscription auth, the persistent **C# execution bridge** (in-process MCP
 server over loopback HTTP, .NET fast-path reads + a per-call ArcPy tool for writes — no
-Python child processes at all), the `run_python_current` centerpiece plus curated tools, a
-work-in-progress pulse indicator, and the options page (auth + model dropdown). Not yet:
+Python child processes at all), the `run_python_current` centerpiece plus selection-aware
+curated tools, Pro-verified ArcPy guidance with on-demand recipe sheets (`Workspace/reference/`),
+a work-in-progress pulse indicator, and the options page (auth + model dropdown). Not yet:
 token-level streaming and the optional approval gate.
