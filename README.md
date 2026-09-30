@@ -20,6 +20,10 @@ Claude Code login (Pro/Max subscription, or an API key)** — no hard-coded key.
 > (no approval prompt). The code and its results are always shown. Keep unsaved work
 > backed up; see [Safety](#safety).
 
+![ProCowork inside ArcGIS Pro: a prompt in the dock pane, Claude's answer with a summary table, and the Water_Main layer re-symbolized by material on the live map](docs/screenshot.png)
+
+*One prompt, one turn: Claude reads the live layer, computes geodesic lengths by material, returns the table, and re-symbolizes the layer on the open map (Naperville water sample data).*
+
 ---
 
 ## How it works
