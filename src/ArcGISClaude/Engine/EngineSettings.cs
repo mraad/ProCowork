@@ -26,7 +26,7 @@ namespace ArcGISClaude.Engine
         public string ApiKey { get; set; }
 
         /// <summary>Model id; null lets Claude Code use its configured default.</summary>
-        public string Model { get; set; } = "claude-opus-4-8";
+        public string Model { get; set; } = "claude-opus-5-5";
 
         /// <summary>
         /// Permission mode passed to the engine. "bypassPermissions" honours the

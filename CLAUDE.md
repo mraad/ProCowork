@@ -65,7 +65,7 @@ Data flow of one live-project tool call:
 
 ### Engine wiring (`Engine/`)
 - `ClaudeCodeProcess` spawns `claude -p --output-format stream-json --input-format stream-json --verbose --mcp-config <path>` + `--permission-mode` + `--model`. stdin = user turns as stream-json; stdout = one JSON event per line. `StreamJsonReader` parses events; `ChatDockPaneViewModel.HandleEvent` maps `system/init`, `assistant`, `user` (tool results), `result` to view models.
-- `AuthResolver.Apply` shapes the child env by `AuthMode`. **In Subscription mode it strips `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`** so the subscription login isn't silently overridden into API billing. `EngineSettings` defaults: model `claude-opus-4-8`, `PermissionMode = "bypassPermissions"` (auto-run, no approval prompt). To reintroduce an approval gate, change `PermissionMode` to `acceptEdits`/`default` — the design supports it without rework.
+- `AuthResolver.Apply` shapes the child env by `AuthMode`. **In Subscription mode it strips `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`** so the subscription login isn't silently overridden into API billing. `EngineSettings` defaults: model `claude-opus-5-5` (the Options dropdown's `KnownModels` list lives in `AuthOptionsViewModel`; keep both current when model ids change), `PermissionMode = "bypassPermissions"` (auto-run, no approval prompt). To reintroduce an approval gate, change `PermissionMode` to `acceptEdits`/`default` — the design supports it without rework.
 - Auth secrets are stored DPAPI-encrypted (`Options/AuthSettingsStore`).
 
 ### Rendering (`UI/`)
