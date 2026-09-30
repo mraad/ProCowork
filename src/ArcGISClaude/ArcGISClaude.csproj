@@ -23,7 +23,7 @@
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <AssemblyName>ArcGISClaude</AssemblyName>
     <RootNamespace>ArcGISClaude</RootNamespace>
-    <Version>0.1.11</Version>
+    <Version>0.1.12</Version>
     <Company>mraad23</Company>
     <Product>ProCowork in ArcGIS Pro</Product>
 
@@ -74,8 +74,9 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
 
-    <!-- CLAUDE.md template ships next to the assembly (Install\Workspace); the
-         add-in seeds it into the user workspace on first run. -->
+    <!-- The workspace template (CLAUDE.md + the reference\ docs it points at)
+         ships next to the assembly (Install\Workspace); the add-in re-seeds it
+         into the user workspace whenever it differs. -->
     <Content Include="Workspace\**\*.*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
